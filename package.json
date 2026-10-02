@@ -1,0 +1,33 @@
+{
+  "name": "imd-mock",
+  "version": "0.1.0",
+  "description": "Local mock of the IMD paid-request API (x402 v2 + Permit2 + QuoteApproval) with a conformance suite. Experimental.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "imd-mock": "dist/cli.js"
+  },
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "fixtures"
+  ],
+  "scripts": {
+    "start": "node dist/cli.js",
+    "compile": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/test/*.test.js",
+    "conformance": "node dist/cli.js conformance",
+    "vectors": "node dist/cli.js vectors > fixtures/vectors.json"
+  },
+  "devDependencies": {
+    "@types/node": "file:vendor/npm/types-node-20.19.43.tgz",
+    "typescript": "file:vendor/npm/typescript-5.9.3.tgz"
+  },
+  "overrides": {
+    "undici-types": "file:vendor/npm/undici-types-6.21.0.tgz"
+  }
+}

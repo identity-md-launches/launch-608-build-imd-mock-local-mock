@@ -1,0 +1,237 @@
+{
+  "description": "One complete paid submit against imd-mock with a fixed clock. Every key here is public test data. Regenerate with `node dist/cli.js vectors`.",
+  "keys": {
+    "bearerToken": "33ce3b7e480acd19edf5c795a97c88938d5571a14b66ad6d6e1a83215e2f78be",
+    "requesterScopeHash": "6da465cfeb36b3be2212cf1b1ec1601e8e3fbff0b5fc55b16d092984d304d49b",
+    "payerPrivateKey": "0x849d0232281d21e9ddd59555fec0c9553d3af72d9ee19fe94e6347b7818a962f",
+    "payerAddress": "0xEA0755C631cC6004b81d55c2b0c76187A82323A6",
+    "mockPayTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432"
+  },
+  "nowMs": 1767225600000,
+  "quoteRequest": {
+    "requestKey": "00000000-0000-4000-8000-000000000001",
+    "action": "echo",
+    "input": {
+      "message": "hello imd-mock"
+    }
+  },
+  "challenge": {
+    "x402Version": 2,
+    "error": "payment_required",
+    "accepts": [
+      {
+        "scheme": "exact",
+        "network": "eip155:1",
+        "amount": "500000000000000000",
+        "asset": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+        "payTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
+        "maxTimeoutSeconds": 600,
+        "extra": {
+          "assetTransferMethod": "permit2",
+          "name": "IMD",
+          "version": "1"
+        }
+      }
+    ],
+    "quote": {
+      "id": "q_19b2b6cc3471206ea24313c0",
+      "quoteHash": "e86c667c68da093f29189843172eac26cfd3a1245382e51fb9a1ba98e3b138d1",
+      "action": "echo",
+      "payment": {
+        "asset": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+        "amount": "500000000000000000",
+        "payTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432"
+      },
+      "expiresAt": 1767226200
+    },
+    "resource": {
+      "url": "http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit",
+      "description": "IMD paid action: echo",
+      "mimeType": "application/json"
+    },
+    "resourceUrl": "http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit",
+    "requesterScopeHash": "6da465cfeb36b3be2212cf1b1ec1601e8e3fbff0b5fc55b16d092984d304d49b"
+  },
+  "permit2": {
+    "encodedType": "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,Witness witness)TokenPermissions(address token,uint256 amount)Witness(address to,uint256 validAfter)",
+    "typedData": {
+      "domain": {
+        "name": "Permit2",
+        "chainId": 1,
+        "verifyingContract": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+      },
+      "types": {
+        "PermitWitnessTransferFrom": [
+          {
+            "name": "permitted",
+            "type": "TokenPermissions"
+          },
+          {
+            "name": "spender",
+            "type": "address"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256"
+          },
+          {
+            "name": "witness",
+            "type": "Witness"
+          }
+        ],
+        "TokenPermissions": [
+          {
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256"
+          }
+        ],
+        "Witness": [
+          {
+            "name": "to",
+            "type": "address"
+          },
+          {
+            "name": "validAfter",
+            "type": "uint256"
+          }
+        ]
+      },
+      "primaryType": "PermitWitnessTransferFrom",
+      "message": {
+        "permitted": {
+          "token": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+          "amount": "500000000000000000"
+        },
+        "spender": "0x402085c248EeA27D92E8b30b2C58ed07f9E20001",
+        "nonce": "37066134521868198288036064146033337282187670171898912863397750053554011059019",
+        "deadline": "1767226195",
+        "witness": {
+          "to": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
+          "validAfter": "0"
+        }
+      }
+    },
+    "digest": "0x30d9e679c8a2bbc25a7057a793a207312bb1ba775478a69a2dc4f08f43eb6b95",
+    "signature": "0xf12e505997ac4ec218dbdf0b37fda46067a3102f49fb620c8fcfa3b8c9fb14bf45ea36768cf75e5125949a6059fabc76d6aef51da8c6adb93f99905d3f7b240c1c"
+  },
+  "payment": {
+    "x402Version": 2,
+    "resource": {
+      "url": "http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit",
+      "description": "IMD paid action: echo",
+      "mimeType": "application/json"
+    },
+    "accepted": {
+      "scheme": "exact",
+      "network": "eip155:1",
+      "amount": "500000000000000000",
+      "asset": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+      "payTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
+      "maxTimeoutSeconds": 600,
+      "extra": {
+        "assetTransferMethod": "permit2",
+        "name": "IMD",
+        "version": "1"
+      }
+    },
+    "payload": {
+      "signature": "0xf12e505997ac4ec218dbdf0b37fda46067a3102f49fb620c8fcfa3b8c9fb14bf45ea36768cf75e5125949a6059fabc76d6aef51da8c6adb93f99905d3f7b240c1c",
+      "permit2Authorization": {
+        "from": "0xEA0755C631cC6004b81d55c2b0c76187A82323A6",
+        "permitted": {
+          "token": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+          "amount": "500000000000000000"
+        },
+        "spender": "0x402085c248EeA27D92E8b30b2C58ed07f9E20001",
+        "nonce": "37066134521868198288036064146033337282187670171898912863397750053554011059019",
+        "deadline": "1767226195",
+        "witness": {
+          "to": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
+          "validAfter": "0"
+        }
+      }
+    }
+  },
+  "paymentCanonicalJson": "{\"accepted\":{\"amount\":\"500000000000000000\",\"asset\":\"0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7\",\"extra\":{\"assetTransferMethod\":\"permit2\",\"name\":\"IMD\",\"version\":\"1\"},\"maxTimeoutSeconds\":600,\"network\":\"eip155:1\",\"payTo\":\"0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432\",\"scheme\":\"exact\"},\"payload\":{\"permit2Authorization\":{\"deadline\":\"1767226195\",\"from\":\"0xEA0755C631cC6004b81d55c2b0c76187A82323A6\",\"nonce\":\"37066134521868198288036064146033337282187670171898912863397750053554011059019\",\"permitted\":{\"amount\":\"500000000000000000\",\"token\":\"0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7\"},\"spender\":\"0x402085c248EeA27D92E8b30b2C58ed07f9E20001\",\"witness\":{\"to\":\"0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432\",\"validAfter\":\"0\"}},\"signature\":\"0xf12e505997ac4ec218dbdf0b37fda46067a3102f49fb620c8fcfa3b8c9fb14bf45ea36768cf75e5125949a6059fabc76d6aef51da8c6adb93f99905d3f7b240c1c\"},\"resource\":{\"description\":\"IMD paid action: echo\",\"mimeType\":\"application/json\",\"url\":\"http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit\"},\"x402Version\":2}",
+  "paymentSignatureHeader": "eyJ4NDAyVmVyc2lvbiI6MiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cDovLzEyNy4wLjAuMTo4NDAyL3JlcXVlc3RzL3JlcV82ODM0ZjM2YzliYzk0MDdkZGU2MWEzZDcvc3VibWl0IiwiZGVzY3JpcHRpb24iOiJJTUQgcGFpZCBhY3Rpb246IGVjaG8iLCJtaW1lVHlwZSI6ImFwcGxpY2F0aW9uL2pzb24ifSwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiZWlwMTU1OjEiLCJhbW91bnQiOiI1MDAwMDAwMDAwMDAwMDAwMDAiLCJhc3NldCI6IjB4ZDM0YTk5YmMwZjY3YWUxYmJkNjNjNjYwZTZkMGIwZGQwM2UyNjNiNyIsInBheVRvIjoiMHg4ZEMzQURlMTI3QmQ0RWY4ZTYwMDA4QjBlMjBiN0UwNzVCNzFBNDMyIiwibWF4VGltZW91dFNlY29uZHMiOjYwMCwiZXh0cmEiOnsiYXNzZXRUcmFuc2Zlck1ldGhvZCI6InBlcm1pdDIiLCJuYW1lIjoiSU1EIiwidmVyc2lvbiI6IjEifX0sInBheWxvYWQiOnsic2lnbmF0dXJlIjoiMHhmMTJlNTA1OTk3YWM0ZWMyMThkYmRmMGIzN2ZkYTQ2MDY3YTMxMDJmNDlmYjYyMGM4ZmNmYTNiOGM5ZmIxNGJmNDVlYTM2NzY4Y2Y3NWU1MTI1OTQ5YTYwNTlmYWJjNzZkNmFlZjUxZGE4YzZhZGI5M2Y5OTkwNWQzZjdiMjQwYzFjIiwicGVybWl0MkF1dGhvcml6YXRpb24iOnsiZnJvbSI6IjB4RUEwNzU1QzYzMWNDNjAwNGI4MWQ1NWMyYjBjNzYxODdBODIzMjNBNiIsInBlcm1pdHRlZCI6eyJ0b2tlbiI6IjB4ZDM0YTk5YmMwZjY3YWUxYmJkNjNjNjYwZTZkMGIwZGQwM2UyNjNiNyIsImFtb3VudCI6IjUwMDAwMDAwMDAwMDAwMDAwMCJ9LCJzcGVuZGVyIjoiMHg0MDIwODVjMjQ4RWVBMjdEOTJFOGIzMGIyQzU4ZWQwN2Y5RTIwMDAxIiwibm9uY2UiOiIzNzA2NjEzNDUyMTg2ODE5ODI4ODAzNjA2NDE0NjAzMzMzNzI4MjE4NzY3MDE3MTg5ODkxMjg2MzM5Nzc1MDA1MzU1NDAxMTA1OTAxOSIsImRlYWRsaW5lIjoiMTc2NzIyNjE5NSIsIndpdG5lc3MiOnsidG8iOiIweDhkQzNBRGUxMjdCZDRFZjhlNjAwMDhCMGUyMGI3RTA3NUI3MUE0MzIiLCJ2YWxpZEFmdGVyIjoiMCJ9fX19",
+  "quoteApproval": {
+    "encodedType": "QuoteApproval(string resource,bytes32 requesterScopeHash,string quoteId,bytes32 quoteHash,bytes32 paymentHash,string action,address asset,uint256 amount,address payTo,uint256 expiresAt)",
+    "typedData": {
+      "domain": {
+        "name": "IdentityMD Paid Action",
+        "version": "1",
+        "chainId": 1
+      },
+      "types": {
+        "QuoteApproval": [
+          {
+            "name": "resource",
+            "type": "string"
+          },
+          {
+            "name": "requesterScopeHash",
+            "type": "bytes32"
+          },
+          {
+            "name": "quoteId",
+            "type": "string"
+          },
+          {
+            "name": "quoteHash",
+            "type": "bytes32"
+          },
+          {
+            "name": "paymentHash",
+            "type": "bytes32"
+          },
+          {
+            "name": "action",
+            "type": "string"
+          },
+          {
+            "name": "asset",
+            "type": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "name": "payTo",
+            "type": "address"
+          },
+          {
+            "name": "expiresAt",
+            "type": "uint256"
+          }
+        ]
+      },
+      "primaryType": "QuoteApproval",
+      "message": {
+        "resource": "http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit",
+        "requesterScopeHash": "0x6da465cfeb36b3be2212cf1b1ec1601e8e3fbff0b5fc55b16d092984d304d49b",
+        "quoteId": "q_19b2b6cc3471206ea24313c0",
+        "quoteHash": "0xe86c667c68da093f29189843172eac26cfd3a1245382e51fb9a1ba98e3b138d1",
+        "paymentHash": "0xeece696439bc08a60797871d5c6af23ebdec54756c949914e1865aa9b8f9b6f3",
+        "action": "echo",
+        "asset": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+        "amount": "500000000000000000",
+        "payTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
+        "expiresAt": "1767226200"
+      }
+    },
+    "digest": "0x5078754c11b435bcf6d0a6523726a997ef5ea05ed76327d4e675e26fecc721ec",
+    "signature": "0xa552748f6a9ea39a0ff7b91a9435f93a80e6d6849e2abb9fd9ea2c241797217530950b3b0748ae2a9090213a6fef1ce9efa7a22f4c626763aa47c1065117fcfb1b"
+  },
+  "submitBody": {
+    "quoteSignature": "0xa552748f6a9ea39a0ff7b91a9435f93a80e6d6849e2abb9fd9ea2c241797217530950b3b0748ae2a9090213a6fef1ce9efa7a22f4c626763aa47c1065117fcfb1b"
+  }
+}
