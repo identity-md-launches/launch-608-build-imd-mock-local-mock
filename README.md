@@ -20,12 +20,8 @@ It needs Node 20 or newer and has no runtime dependencies.
 ## Five-minute start
 
 ```sh
-# Start the mock on http://127.0.0.1:8402 without cloning (replace <owner>/<repo> with where this repo lives)
-npx github:<owner>/<repo>
-
-# ...or from a clone
-git clone https://github.com/<owner>/<repo> imd-mock && cd imd-mock
-npm start                      # same server; dist/ is committed, no build needed
+# From a clone, start the mock on http://127.0.0.1:8402. dist/ is committed, so no build is needed.
+npm start
 npm run conformance            # starts its own mock and runs the suite: "# fail 0" means all good
 ```
 
@@ -35,12 +31,16 @@ key below. When your client gets a `200` or `202` from the paid submit, its sign
 Try it by hand:
 
 ```sh
-TOKEN=$(openssl rand -hex 32)          # step 1: bearer token = 32 random bytes as hex
-curl -s localhost:8402/requests/capabilities
-curl -s -X POST localhost:8402/requests/check -d '{"action":"echo","input":{"message":"hi"}}'
-curl -s -X POST localhost:8402/requests/quote -H "Authorization: Bearer $TOKEN" \
-  -d "{\"requestKey\":\"$(node -p 'crypto.randomUUID()')\",\"action\":\"echo\",\"input\":{\"message\":\"hi\"}}"
-curl -s -X POST localhost:8402/requests/<order id>/submit -H "Authorization: Bearer $TOKEN"   # 402 challenge
+BASE_URL=${BASE_URL:-http://127.0.0.1:8402}
+TOKEN=$(openssl rand -hex 32) # step 1: bearer token = 32 random bytes as hex
+curl -fsS "$BASE_URL/requests/capabilities"; printf '\n'
+curl -fsS -X POST "$BASE_URL/requests/check" -H 'content-type: application/json' \
+  -d '{"action":"job.open","input":{"objective":"Say hi."}}'; printf '\n'
+ORDER=$(curl -fsS -X POST "$BASE_URL/requests/quote" -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d "{\"requestKey\":\"$(node -p 'crypto.randomUUID()')\",\"action\":\"job.open\",\"input\":{\"objective\":\"Say hi.\"}}")
+ORDER_ID=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).order.id)' "$ORDER")
+STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/requests/$ORDER_ID/submit" -H "Authorization: Bearer $TOKEN")
+test "$STATUS" = 402 # payment challenge; steps 5 to 7 need signatures
 ```
 
 Steps 5 to 7 need signatures; see `signPayment` in [`src/client.ts`](src/client.ts) for a complete,
@@ -55,7 +55,7 @@ imd-mock vectors                  print the deterministic test vectors (JSON)
 
   -p, --port <n>            port to listen on (0 = any free port)
   -H, --host <addr>         address to bind (default 127.0.0.1)
-      --flaky               /requests/check refuses each distinct body once, then answers normally
+      --flaky               /requests/check adds a blocker to each distinct body once, then answers normally
       --quote-lifetime <s>  quote lifetime in seconds (default 600)
       --public-url <url>    base URL to put in resourceUrl (default: http://<Host header>)
       --url <url>           conformance: server to test instead of a fresh mock
@@ -66,27 +66,28 @@ imd-mock vectors                  print the deterministic test vectors (JSON)
 `imd-mock --help` prints the same experimental notice as the top of this file, and so does the page the
 server serves at `/`.
 
-## The flow, as the mock implements it
+## The mock flow
 
 | Step | Request | Mock response |
 | --- | --- | --- |
 | 1 | Make a bearer token: 32 random bytes as hex | Any other token is `401 unauthorized` |
 | 2 | `POST /requests/quote {requestKey, action, input}` | `201 {order:{id, status:"quoted", quote, ...}}`; same `requestKey` and body again is `200` with the same order; same key with a different body is `409 request_key_conflict`; bad input is `422 {error:"invalid_input", problems:[{path, message}]}` |
-| 3 | `POST /requests/{id}/submit`, no body, no payment | `402 {x402Version:2, error:"payment_required", accepts[], quote{id, quoteHash, action, payment{asset, amount, payTo}, expiresAt}, resource, resourceUrl, requesterScopeHash}`, also base64 in the `PAYMENT-REQUIRED` header |
+| 3 | `POST /requests/{id}/submit`, no body, no payment | `402 {x402Version:2, accepts[], quote{id, quoteHash, action, payment{asset, amount, payTo}, expiresAt}, resource, resourceUrl, requesterScopeHash}`, also base64 in the `PAYMENT-REQUIRED` header |
 | 4 | Check `accepts[0]` against capabilities and the quote | `checkChallenge()` in `src/client.ts` does this |
 | 5 | Sign Permit2 `PermitWitnessTransferFrom` | Verified on submit (below) |
 | 6 | Sign `QuoteApproval` | Verified on submit (below) |
-| 7 | `POST /requests/{id}/submit` with `PAYMENT-SIGNATURE: base64(JSON payment)` and body `{quoteSignature}` | `echo`: `200 {order:{status:"completed"}, outcome}`. `implement`: `202 {order:{status:"admission_pending"}}`. Both set a base64 `PAYMENT-RESPONSE` header with a fake transaction hash |
+| 7 | `POST /requests/{id}/submit` with `PAYMENT-SIGNATURE: base64(JSON payment)` and body `{quoteSignature}` | `job.open`: `202 {status:"admission_pending", ...}`. `schedule.create` and `schedule.topup` are admitted immediately and return `200 {status:"admitted", ...}`. All set a base64 `PAYMENT-RESPONSE` header with a fake transaction hash |
 | 8 | Poll `GET /requests/{id}` with the same bearer | `{order:{...}}`; see the state machine below |
 
-Free helpers: `POST /requests/check {action, input}` returns `{verdict:"accept"|"refuse", reasons[]}`;
-`POST /requests/import {url, kind}` returns `{repoUrl, baseCommit}`; `GET /openapi.json` lists actions
+Free helpers: `POST /requests/check {action, input}` returns
+`{action, blockers, suggestions, kind, plan, facts, judged}` (with action-specific extra fields possible);
+`POST /requests/import {url, kind}` returns `{ok, mock, source:{repoUrl, baseCommit, ...}}`; `GET /openapi.json` lists actions
 and limits under `x-imd-actions`; `GET /requests/capabilities` gives price, asset, payTo, quote lifetime
-and launch chains. `GET /jobs/{id}` returns `{job:{id, requestId, action, status, result?}}`.
+and launch chains. `GET /jobs/{id}` returns `{id, state, objective, ...}`.
 
 Every request that carries an `Origin` header (that is, comes from a browser, preflight included) gets
-`403 browser_origin_forbidden`. Orders and jobs can only be read with the bearer token that created
-them; any other token gets `404`.
+`403 browser_origin_forbidden`. Orders can only be read with the bearer token that created them; any
+other token gets `404`. Jobs are public.
 
 ### What the paid submit checks
 
@@ -126,24 +127,25 @@ deterministic. This is who moves each transition:
 | (none) | `quoted` | client: `POST /requests/quote` |
 | `quoted` | `payment_pending` | client: unpaid `POST /requests/{id}/submit` (the 402) |
 | `quoted` / `payment_pending` | `expired` | any read or submit after `expiresAt` |
-| `payment_pending` | `completed` | client: valid paid submit of a sync action (`echo`) |
-| `payment_pending` | `admission_pending` | client: valid paid submit of an async action (`implement`) |
-| `admission_pending` | `running` (job `queued`) or `refused` | client: next `GET /requests/{id}` or `GET /jobs/{id}` |
-| `running` | job `running`, then `completed` | client: each further read advances one step |
+| `payment_pending` | `admission_pending` | client: valid paid submit of `job.open`, `job.continue`, `launch.open`, `workflow.open`, or `oracle.request` |
+| `payment_pending` | `admitted` | client: valid paid submit of `schedule.create` or `schedule.topup` |
+| `admission_pending` | `admitted` | client: next `GET /requests/{id}` or `GET /jobs/{id}`; a created job advances from `executing` to `completed` on a later read |
 
 In the real service settlement, admission and the job run on the server's own schedule. Here, polling
 drives them.
 
+**Known open question:** the mock moves an order to `payment_pending` when an unpaid submit returns
+`402`; whether the live server does the same is unconfirmed.
+
 ## Canned behaviour
 
 - **Actions** (in `src/actions.ts`, listed under `x-imd-actions`): these stand in for the real
-  catalogue. `echo {message}` completes in the paid submit (`200`). `implement {repoUrl, baseCommit,
-  objective}` returns `202` and runs a job.
-- **Verdicts:** any input string containing `[refuse]` gets `verdict: "refuse"` from `/requests/check`,
-  and the paid order ends `refused`. Everything else that validates is accepted.
-- **Flaky mode** (`--flaky`): `/requests/check` refuses each distinct `{action, input}` body (keys sorted)
-  the first time it sees it and answers normally after that. A client that retries up to 3 times, as the
-  real API asks, gets the real verdict.
+  catalogue. `job.open {objective}` returns `202` and is admitted on the next read; schedule actions
+  are admitted in the paid submit (`200`).
+- **Checks:** any input string containing `[refuse]` receives a `canned_refusal` blocker from
+  `/requests/check`, and quoting the same input returns `422`. Other valid inputs have no canned blocker.
+- **Flaky mode** (`--flaky`): `/requests/check` adds an `evaluator_noise` blocker to each distinct
+  `{action, input}` body (keys sorted) the first time it sees it. A retry gets the normal check result.
 - **Import:** `/requests/import` fetches nothing. `baseCommit` is a stable fake derived from the URL.
 
 ## Test identities and vectors
@@ -168,16 +170,15 @@ sha256 of the bearer token's hex string.
 
 ```sh
 npm run conformance                                  # fresh mock, in-process
-npx github:<owner>/<repo> conformance                # same, without cloning
 node dist/cli.js conformance --flaky                 # against a flaky mock
-node dist/cli.js conformance --url http://host:port  # against a server that is already running
+node dist/cli.js conformance --url http://127.0.0.1:8402  # against a server that is already running
 ```
 
 It prints TAP and exits non-zero on any failure. It covers 20 checks: capabilities and openapi shapes,
-browser-origin and bearer rules, check verdicts with retry, quote validation and idempotency, the
+browser-origin and bearer rules, check blockers with retry, quote validation and idempotency, the
 402 challenge shape and its agreement with capabilities, the payment-shape, mismatch, deadline,
-forged-signature and wrong-`paymentHash` refusals, a successful sync payment, nonce replay, double
-payment, async polling through to a completed job, admission refusal, and bearer scoping. The checks
+forged-signature and wrong-`paymentHash` refusals, successful paid submits, nonce replay, double
+payment, polling through to a completed job, admission refusal, and bearer scoping. The checks
 live in `src/conformance.ts`. To check a client you wrote, run it against the mock: the mock refuses
 anything the suite refuses.
 
@@ -191,7 +192,7 @@ import { startMock, ImdClient, TEST_PAYER_KEY } from "imd-mock";
 
 const mock = await startMock(0, "127.0.0.1", { flaky: true });   // port 0 picks a free port
 const client = new ImdClient(mock.url, "<64 hex chars>");
-const { id, submit } = await client.pay("echo", { message: "hi" }, TEST_PAYER_KEY);
+const { id, submit } = await client.pay("job.open", { objective: "Say hi." }, TEST_PAYER_KEY);
 await mock.close();
 ```
 
@@ -203,8 +204,8 @@ tests in `test/payment.test.ts` run.
 - **No chain.** No token balance, no IMD allowance to Permit2, no Permit2 nonce bitmap onchain, no
   settlement transaction. The `transaction` in `PAYMENT-RESPONSE` and in the order is a fake hash. A
   wallet with no IMD or no approval is accepted here and would fail for real.
-- **Not the real catalogue or prices.** `echo` and `implement` are stand-ins. Every action costs 0.5
-  IMD. Schedules (priced per run) are not modelled.
+- **Not the real catalogue or prices.** The seven action names and every 0.5 IMD base price are local
+  stand-ins. Schedule actions are priced per run in the mock.
 - **Not the real payTo.** Payments go to the mock payTo above. Read the real one from the real
   `/requests/capabilities`.
 - **No real evaluator.** Verdicts are canned (`[refuse]` marker). The real evaluator's noise is only
