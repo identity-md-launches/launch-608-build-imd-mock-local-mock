@@ -1,5 +1,6 @@
 // Shapes and constants of the IMD paid-request flow, shared by the mock
-// server, the reference client and the conformance suite.
+// server, the reference client and the conformance suite. The shapes follow
+// https://imd.fun/docs#paid and the live https://api.imd.fun/openapi.json.
 import { createHash } from "node:crypto";
 export const EXPERIMENTAL_NOTICE = "Experimental, commissioned as a test of the IMD swarm. It may not work as described. Read the code, start with small amounts, no warranty.";
 export const CHAIN_ID = 1;
@@ -7,14 +8,17 @@ export const NETWORK = "eip155:1";
 /** IMD token on Ethereum mainnet. */
 export const IMD_TOKEN = "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7";
 export const IMD_DECIMALS = 18;
-/** 0.5 IMD per action (per run for schedules). */
+/** 0.5 IMD per action, and per run for a schedule. */
 export const PRICE_PER_ACTION = "500000000000000000";
+export const DEFAULT_QUOTE_TTL_SECONDS = 600;
+/** accepts[0].maxTimeoutSeconds, as the live API reports it. */
+export const MAX_TIMEOUT_SECONDS = 300;
 export const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 /** x402 "exact" scheme Permit2 proxy: the spender of every permit. */
 export const X402_PERMIT2_PROXY = "0x402085c248EeA27D92E8b30b2C58ed07f9E20001";
 /** A permit deadline must be at least this many seconds before quote.expiresAt. */
 export const DEADLINE_MARGIN_SECONDS = 5;
-/** Statuses a client keeps polling through. */
+/** `GET /requests/:id` statuses a client keeps polling through. */
 export const PENDING_STATUSES = ["quoted", "payment_pending", "admission_pending"];
 export const PERMIT2_DOMAIN = {
     name: "Permit2",
@@ -116,4 +120,11 @@ export function paymentHash(payment) {
 }
 export function encodePaymentHeader(payment) {
     return Buffer.from(JSON.stringify(payment), "utf8").toString("base64");
+}
+/** A deterministic, well-formed UUID v4 derived from a label. */
+export function uuidFrom(label) {
+    const h = sha256Hex(label);
+    const version = `4${h.slice(13, 16)}`;
+    const variant = `${"89ab"[parseInt(h[16], 16) % 4]}${h.slice(17, 20)}`;
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${version}-${variant}-${h.slice(20, 32)}`;
 }

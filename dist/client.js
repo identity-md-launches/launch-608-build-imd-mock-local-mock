@@ -37,6 +37,10 @@ export function signAuthorization(challenge, permit2Authorization, privateKey) {
             permit2Authorization,
         },
     };
+    return signQuoteApproval(challenge, payment, privateKey);
+}
+/** Signs the QuoteApproval over an exact payment object, however it was built. */
+export function signQuoteApproval(challenge, payment, privateKey) {
     const approval = quoteApprovalFor(challenge, payment);
     return {
         payment,
@@ -52,18 +56,31 @@ export function checkChallenge(challenge, capabilities) {
     if (!a)
         return ["challenge has no accepts[0]"];
     const q = challenge.quote.payment;
+    const terms = capabilities.actions?.find((entry) => entry.action === challenge.quote.action);
+    if (!terms)
+        return [`capabilities does not enable ${challenge.quote.action}`];
     if (a.scheme !== "exact")
         problems.push(`accepts[0].scheme is ${a.scheme}, expected exact`);
-    if (a.network !== capabilities.network)
-        problems.push(`accepts[0].network is ${a.network}, expected ${capabilities.network}`);
+    if (a.network !== terms.payment.network || q.network !== terms.payment.network) {
+        problems.push(`network differs from capabilities (${terms.payment.network})`);
+    }
     if (a.extra?.assetTransferMethod !== "permit2")
         problems.push("accepts[0].extra.assetTransferMethod is not permit2");
-    if (!sameAddress(a.asset, capabilities.asset) || !sameAddress(a.asset, q.asset))
+    if (!sameAddress(a.asset, terms.payment.asset) || !sameAddress(a.asset, q.asset)) {
         problems.push("accepts[0].asset differs from capabilities or quote");
-    if (!sameAddress(a.payTo, capabilities.payTo) || !sameAddress(a.payTo, q.payTo))
+    }
+    if (!sameAddress(a.payTo, terms.payment.payTo) || !sameAddress(a.payTo, q.payTo)) {
         problems.push("accepts[0].payTo differs from capabilities or quote");
-    if (a.amount !== capabilities.price || a.amount !== q.amount)
-        problems.push("accepts[0].amount differs from capabilities price or quote amount");
+    }
+    // One unit per action, except the actions capabilities marks as priced per run.
+    const units = BigInt(capabilities.pricedPer?.[challenge.quote.action] ? (challenge.quote.runs ?? 0) : 1);
+    const expected = (BigInt(terms.payment.amount) * units).toString(10);
+    if (a.amount !== expected || q.amount !== expected) {
+        problems.push(`amount is ${a.amount}, expected ${expected} (${terms.payment.amount} x ${units})`);
+    }
+    if (challenge.quote.expiresAt - challenge.quote.issuedAt > terms.quoteTtlSeconds) {
+        problems.push(`quote lives longer than quoteTtlSeconds (${terms.quoteTtlSeconds})`);
+    }
     return problems;
 }
 export class ImdClient {
@@ -99,12 +116,12 @@ export class ImdClient {
     openapi() {
         return this.request("GET", "/openapi.json");
     }
-    /** The evaluator is noisy: retry a refusal up to `attempts` times in total. */
+    /** The evaluator is noisy: retry while it reports blockers, up to `attempts` times. */
     async check(action, input, attempts = 3) {
         let last;
         for (let i = 0; i < attempts; i++) {
             last = await this.request("POST", "/requests/check", { action, input });
-            if (last.status !== 200 || last.body?.verdict === "accept")
+            if (last.status !== 200 || last.body?.blockers?.length === 0)
                 break;
         }
         return last;
@@ -124,13 +141,16 @@ export class ImdClient {
     getJob(id) {
         return this.request("GET", `/jobs/${encodeURIComponent(id)}`);
     }
+    getJobResult(id) {
+        return this.request("GET", `/jobs/${encodeURIComponent(id)}/result`);
+    }
     /** Step 8: poll until the status leaves quoted, payment_pending and admission_pending. */
     async poll(id, { intervalMs = 0, maxPolls = 50 } = {}) {
         for (let i = 0; i < maxPolls; i++) {
             const res = await this.getRequest(id);
             if (res.status !== 200)
                 return res;
-            if (!PENDING_STATUSES.includes(res.body.order.status))
+            if (!PENDING_STATUSES.includes(res.body.status))
                 return res;
             if (intervalMs > 0)
                 await new Promise((r) => setTimeout(r, intervalMs));

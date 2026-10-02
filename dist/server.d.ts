@@ -1,47 +1,59 @@
 import { type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { type OrderStatus, type PaymentChallenge, type PaymentRequirements, type Quote } from "./protocol.js";
+import { type Note } from "./actions.js";
+import { type AdmissionResult, type Order, type OrderStatus, type PaymentChallenge, type PaymentRequirements, type Quote, type RequestStatus, type RequestStatusResponse } from "./protocol.js";
 export interface MockOptions {
-    /** Refuse every distinct /requests/check body once, then answer normally. */
+    /** Add an evaluator-noise blocker to each distinct /requests/check body once. */
     flaky?: boolean;
     /** Clock in milliseconds. Default Date.now. */
     now?: () => number;
-    quoteLifetimeSeconds?: number;
+    quoteTtlSeconds?: number;
     payTo?: string;
     /** Public base URL used in resourceUrl. Default: http://<Host header>. */
     publicUrl?: string;
     /** Called with one line per request; default silent. */
     log?: (line: string) => void;
 }
-interface Job {
+interface JobRecord {
     id: string;
     requestId: string;
-    action: string;
-    status: "queued" | "running" | "completed";
-    result?: Record<string, unknown>;
+    state: "executing" | "completed";
+    template: string | null;
+    objective: string;
+    paidBy: string;
+    parentJobId: string | null;
     createdAt: number;
     updatedAt: number;
 }
-interface Order {
+interface Replay {
+    key: string;
+    status: number;
+    body: unknown;
+    headers: Record<string, string>;
+}
+interface OrderRecord {
     id: string;
     scope: string;
     requestKey: string;
     action: string;
     input: Record<string, unknown>;
-    status: OrderStatus;
+    quote: Quote;
     challenge: PaymentChallenge;
+    status: OrderStatus;
     createdAt: number;
-    updatedAt: number;
+    paidAt: number | null;
     payment?: {
         payer: string;
         nonce: string;
         paymentHash: string;
-        transaction: string;
+        transactionHash: string;
+    };
+    admission?: {
+        action: string;
+        result: AdmissionResult;
     };
     jobId?: string;
-    outcome?: Record<string, unknown>;
-    refusal?: {
-        reasons: string[];
-    };
+    /** The exact bytes of the submit that settled, so a lost response can be re-read. */
+    replay?: Replay;
 }
 export declare class HttpError extends Error {
     readonly status: number;
@@ -51,40 +63,53 @@ export declare class HttpError extends Error {
 }
 export declare class MockState {
     readonly options: MockOptions;
-    readonly orders: Map<string, Order>;
-    readonly jobs: Map<string, Job>;
+    readonly orders: Map<string, OrderRecord>;
+    readonly jobs: Map<string, JobRecord>;
     readonly requestKeys: Map<string, string>;
     readonly usedNonces: Set<string>;
     readonly flakySeen: Set<string>;
     readonly flaky: boolean;
-    readonly quoteLifetimeSeconds: number;
+    readonly quoteTtlSeconds: number;
     readonly payTo: string;
     readonly now: () => number;
     constructor(options?: MockOptions);
     nowSeconds(): number;
-    accepts(): PaymentRequirements;
+    accepts(amount: string): PaymentRequirements;
     capabilities(): {
         mock: boolean;
         notice: string;
-        x402Version: number;
-        chainId: number;
-        network: string;
-        asset: `0x${string}`;
-        assetSymbol: string;
-        assetDecimals: number;
-        price: string;
-        priceUnit: string;
-        payTo: string;
-        quoteLifetimeSeconds: number;
-        deadlineMarginSeconds: number;
-        permit2: `0x${string}`;
-        spender: `0x${string}`;
-        launchChains: {
-            chainId: number;
-            network: string;
-            name: string;
-        }[];
-        actions: string[];
+        actions: Record<string, unknown>[];
+        limits: Record<string, Record<string, number>>;
+        launches: {
+            defaultChainId: number;
+            chains: {
+                chainId: number;
+                name: string;
+                testnet: boolean;
+                kinds: string[];
+                pairings: {
+                    pairWith: string;
+                    currency: string;
+                    symbol: string;
+                    name: string;
+                    decimals: number;
+                    kinds: string[];
+                }[];
+            }[];
+        };
+        pricedPer: Record<string, string>;
+        authentication: {
+            scheme: string;
+            tokenBytes: number;
+            encoding: string;
+            creator: string;
+        };
+        payment: {
+            x402Version: number;
+            scheme: string;
+            assetTransferMethod: string;
+            quoteApproval: string;
+        };
     };
     openapi(): {
         openapi: string;
@@ -92,6 +117,17 @@ export declare class MockState {
             title: string;
             version: string;
             description: string;
+        };
+        "x-imd-mock": boolean;
+        "x-imd-actions": Record<string, unknown>[];
+        "x-imd-quote-approval": {
+            domain: {
+                name: "IdentityMD Paid Action";
+                version: "1";
+                chainId: 1;
+            };
+            primaryType: string;
+            types: import("./crypto/eip712.js").TypedDataTypes;
         };
         paths: {
             "/requests/capabilities": {
@@ -213,88 +249,136 @@ export declare class MockState {
                     };
                 };
             };
+            "/jobs/{id}/result": {
+                get: {
+                    summary: string;
+                    responses: {
+                        [k: string]: {
+                            description: string;
+                            content: {
+                                "application/json": {
+                                    schema: {
+                                        type: string;
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
         };
-        "x-imd-actions": Record<string, unknown>;
     };
+    /** POST /requests/check: {action, blockers, suggestions} plus the action's preview. */
     check(body: Record<string, unknown>): {
-        verdict: string;
-        reasons: string[];
+        blockers: Note[];
+        suggestions: Note[];
+        action: string;
     };
+    /** POST /requests/import: canned, and never reaches the network. */
     importRepo(body: Record<string, unknown>): {
-        repoUrl: string;
-        baseCommit: string;
+        ok: boolean;
         mock: boolean;
+        source: {
+            repoUrl: string;
+            baseCommit: string;
+            ref: string;
+            sizeKb: number;
+            site: boolean;
+        };
     };
+    /** POST /requests/quote. */
     quote(scope: string, body: Record<string, unknown>, baseUrl: string): {
         status: number;
-        order: Order;
+        order: OrderRecord;
     };
-    order(scope: string, id: string): Order;
-    setStatus(order: Order, status: OrderStatus): void;
+    private record;
+    /** POST /requests/{id}/submit, with or without the PAYMENT-SIGNATURE header. */
     submit(scope: string, id: string, paymentHeader: string | undefined, body: unknown): {
         status: number;
         body: unknown;
         headers: Record<string, string>;
     };
-    /** Runs the canned admission verdict: completes sync actions, queues a job for async ones. */
-    admit(order: Order): void;
+    /** Runs the canned admission: an order moves from admission_pending to admitted. */
+    admit(order: OrderRecord): void;
     /**
-     * Each read advances an async order one step, so polling is deterministic:
-     * admission_pending -> running (job queued) -> job running -> completed.
+     * The mock has no timers, so every read advances the work one step:
+     * admission_pending -> admitted (job executing) -> job completed.
      */
-    advance(order: Order): void;
-    getRequest(scope: string, id: string): {
-        order: {
-            refusal?: {
-                reasons: string[];
-            } | undefined;
-            outcome?: Record<string, unknown> | undefined;
-            jobId?: string | undefined;
-            payment?: {
-                payer: string;
-                transaction: string;
-                network: string;
-            } | undefined;
-            id: string;
-            requestKey: string;
-            action: string;
-            status: OrderStatus;
-            quote: Quote;
-            resourceUrl: string;
-            createdAt: number;
-            updatedAt: number;
-        };
-    };
-    getJob(scope: string, id: string): {
-        job: {
-            id: string;
-            requestId: string;
-            action: string;
-            status: "queued" | "running" | "completed";
-            result?: Record<string, unknown>;
-            createdAt: number;
-            updatedAt: number;
-        };
-    };
-    orderView(order: Order): {
-        refusal?: {
-            reasons: string[];
-        } | undefined;
-        outcome?: Record<string, unknown> | undefined;
-        jobId?: string | undefined;
-        payment?: {
-            payer: string;
-            transaction: string;
-            network: string;
-        } | undefined;
+    private advance;
+    statusOf(order: OrderRecord): RequestStatus;
+    /** GET /requests/{id}. */
+    getRequest(scope: string, id: string): RequestStatusResponse;
+    /** GET /jobs/{id}: public, like the live route. */
+    getJob(id: string): {
         id: string;
-        requestKey: string;
-        action: string;
-        status: OrderStatus;
-        quote: Quote;
-        resourceUrl: string;
-        createdAt: number;
-        updatedAt: number;
+        state: "executing" | "completed";
+        template: string | null;
+        objective: string;
+        blockedReason: null;
+        createdAt: string;
+        updatedAt: string;
+        paidBy: string;
+        parentJobId: string | null;
+        mock: boolean;
+        project: {
+            id: string;
+            head: string | null;
+            running: string | null;
+            versions: never[];
+        };
+        delivery: null;
+        nodes: {
+            key: string;
+            state: "executing" | "completed";
+            attempt: number;
+            verdict: string | null;
+        }[];
+    };
+    /** GET /jobs/{id}/result. */
+    getJobResult(id: string): {
+        jobId: string;
+        projectId: string;
+        state: "executing" | "completed";
+        complete: boolean;
+        mock: boolean;
+        source: never[];
+        files: {
+            name: string;
+            path: string;
+            mediaType: string;
+            hash: string;
+            bytes: number;
+            submissionHash: string;
+            url: string;
+        }[];
+        delivery: null;
+    };
+    orderView(order: OrderRecord): Order;
+    statusView(order: OrderRecord): RequestStatusResponse;
+    jobView(job: JobRecord): {
+        id: string;
+        state: "executing" | "completed";
+        template: string | null;
+        objective: string;
+        blockedReason: null;
+        createdAt: string;
+        updatedAt: string;
+        paidBy: string;
+        parentJobId: string | null;
+        mock: boolean;
+        project: {
+            id: string;
+            head: string | null;
+            running: string | null;
+            versions: never[];
+        };
+        delivery: null;
+        nodes: {
+            key: string;
+            state: "executing" | "completed";
+            attempt: number;
+            verdict: string | null;
+        }[];
     };
 }
 export declare function createMockServer(options?: MockOptions): {

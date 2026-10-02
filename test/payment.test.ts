@@ -3,9 +3,9 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { signAuthorization, signPayment, type SignedPayment } from "../src/client.js";
+import { signAuthorization, signPayment, signQuoteApproval, type SignedPayment } from "../src/client.js";
 import { signTypedData } from "../src/crypto/eip712.js";
-import { FIXED_NONCE, FIXED_NOW_MS, TEST_BEARER_TOKEN, TEST_PAYER_KEY, testPayerKey } from "../src/fixtures.js";
+import { FIXED_JOB_INPUT, FIXED_NONCE, FIXED_NOW_MS, TEST_BEARER_TOKEN, TEST_PAYER_KEY, testPayerKey } from "../src/fixtures.js";
 import { privateKeyToAddress } from "../src/crypto/secp256k1.js";
 import { encodePaymentHeader, quoteApprovalTypedData, sha256Hex, type PaymentChallenge, type QuoteApproval } from "../src/protocol.js";
 import { HttpError, MockState } from "../src/server.js";
@@ -13,13 +13,9 @@ import { HttpError, MockState } from "../src/server.js";
 const OTHER = "0x1111111111111111111111111111111111111111";
 const SCOPE = sha256Hex(TEST_BEARER_TOKEN);
 
-function setup() {
+function setup(requestKey = "00000000-0000-4000-8000-000000000042") {
   const state = new MockState({ now: () => FIXED_NOW_MS });
-  const { order } = state.quote(
-    SCOPE,
-    { requestKey: "00000000-0000-4000-8000-000000000042", action: "echo", input: { message: "hi" } },
-    "http://127.0.0.1:8402",
-  );
+  const { order } = state.quote(SCOPE, { requestKey, action: "job.open", input: FIXED_JOB_INPUT }, "http://127.0.0.1:8402");
   const challenge = state.submit(SCOPE, order.id, undefined, undefined).body as PaymentChallenge;
   const signed = signPayment(challenge, TEST_PAYER_KEY, { nonce: FIXED_NONCE });
   return { state, id: order.id, challenge, signed };
@@ -62,8 +58,9 @@ function flipSignature(sig: string): string {
 test("a correctly signed payment is accepted", () => {
   const { state, id, signed } = setup();
   const res = state.submit(SCOPE, id, signed.paymentHeader, { quoteSignature: signed.quoteSignature });
-  assert.equal(res.status, 200);
-  assert.equal(state.orders.get(id)!.status, "completed");
+  assert.equal(res.status, 202);
+  assert.equal((res.body as any).status, "admission_pending");
+  assert.equal(state.orders.get(id)!.status, "paid");
   assert.equal(state.orders.get(id)!.payment!.payer, privateKeyToAddress(TEST_PAYER_KEY));
   assert.ok(res.headers["payment-response"]);
 });
@@ -72,7 +69,28 @@ test("the correct payment is still accepted after a run of refusals", () => {
   const { state, id, signed } = setup();
   assertRefused(state, id, changed(signed, "payload.permit2Authorization.nonce", (n) => String(BigInt(n) + 1n)), { quoteSignature: signed.quoteSignature });
   assertRefused(state, id, signed.paymentHeader, { quoteSignature: flipSignature(signed.quoteSignature) });
-  assert.equal(state.submit(SCOPE, id, signed.paymentHeader, { quoteSignature: signed.quoteSignature }).status, 200);
+  assert.equal(state.submit(SCOPE, id, signed.paymentHeader, { quoteSignature: signed.quoteSignature }).status, 202);
+});
+
+test("resending the exact submit bytes returns the first outcome and settles nothing twice", () => {
+  const { state, id, signed } = setup();
+  const body = { quoteSignature: signed.quoteSignature };
+  const first = state.submit(SCOPE, id, signed.paymentHeader, body);
+  const second = state.submit(SCOPE, id, signed.paymentHeader, body);
+  assert.equal(second.status, first.status);
+  assert.deepEqual(second.body, first.body);
+  assert.equal(second.headers["payment-replayed"], "true");
+  assert.equal(state.usedNonces.size, 1, "the nonce is spent once");
+});
+
+test("a second, differently signed payment for a paid order is 409 already_paid", () => {
+  const { state, id, challenge, signed } = setup();
+  state.submit(SCOPE, id, signed.paymentHeader, { quoteSignature: signed.quoteSignature });
+  const other = signPayment(challenge, TEST_PAYER_KEY, { nonce: String(BigInt(FIXED_NONCE) + 1n) });
+  assert.deepEqual(submit(state, id, other.paymentHeader, { quoteSignature: other.quoteSignature }), {
+    status: 409,
+    error: "already_paid",
+  });
 });
 
 describe("payment object: any single field changed after signing is refused", () => {
@@ -88,8 +106,6 @@ describe("payment object: any single field changed after signing is refused", ()
     ["accepted.payTo", () => OTHER],
     ["accepted.maxTimeoutSeconds", (n) => n + 1],
     ["accepted.extra.assetTransferMethod", () => "eip3009"],
-    ["accepted.extra.name", () => "NOT-IMD"],
-    ["accepted.extra.version", () => "2"],
     ["payload.signature", flipSignature],
     ["payload.permit2Authorization.from", () => OTHER],
     ["payload.permit2Authorization.permitted.token", () => OTHER],
@@ -119,9 +135,11 @@ describe("payment object: shape violations are invalid_payment_shape", () => {
     ["extra field in permit2Authorization", (p) => (p.payload.permit2Authorization.chainId = "1")],
     ["extra field in witness", (p) => (p.payload.permit2Authorization.witness.extra = "0x")],
     ["extra field in accepted", (p) => (p.accepted.foo = "bar")],
+    ["extra field in accepted.extra", (p) => (p.accepted.extra.name = "IMD")],
     ["number instead of decimal string", (p) => (p.payload.permit2Authorization.nonce = 5)],
     ["hex instead of decimal string", (p) => (p.payload.permit2Authorization.deadline = "0x10")],
     ["missing field", (p) => delete p.payload.permit2Authorization.spender],
+    ["non-empty extensions", (p) => (p.extensions = { tip: "1" })],
   ];
   for (const [name, mutate] of cases) {
     test(name, () => {
@@ -131,6 +149,24 @@ describe("payment object: shape violations are invalid_payment_shape", () => {
       assertRefused(state, id, encodePaymentHeader(copy), { quoteSignature: signed.quoteSignature }, "invalid_payment_shape");
     });
   }
+
+  // A shape check written with `in` would accept these: they are keys of
+  // Object.prototype, not declared payment fields.
+  for (const key of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    test(`inherited property name: ${key}`, () => {
+      const { state, id, challenge, signed } = setup();
+      const payment = JSON.parse(`${JSON.stringify(signed.payment).slice(0, -1)},${JSON.stringify(key)}:"extra"}`);
+      // Re-sign the approval so only the shape, not the paymentHash, can refuse it.
+      const resigned = signQuoteApproval(challenge, payment, TEST_PAYER_KEY);
+      assertRefused(state, id, resigned.paymentHeader, { quoteSignature: resigned.quoteSignature }, "invalid_payment_shape");
+    });
+  }
+
+  test("an empty extensions object is accepted, as a stock x402 client sends it", () => {
+    const { state, id, challenge, signed } = setup();
+    const resigned = signQuoteApproval(challenge, { ...signed.payment, extensions: {} }, TEST_PAYER_KEY);
+    assert.equal(state.submit(SCOPE, id, resigned.paymentHeader, { quoteSignature: resigned.quoteSignature }).status, 202);
+  });
 
   test("header that is not base64 JSON", () => {
     const { state, id, signed } = setup();
@@ -172,12 +208,12 @@ describe("Permit2: a validly signed authorization with any wrong field is refuse
 
 describe("QuoteApproval: a validly signed approval with any wrong field is refused", () => {
   const cases: Array<[keyof QuoteApproval, string]> = [
-    ["resource", "http://127.0.0.1:8402/requests/other/submit"],
+    ["resource", "http://127.0.0.1:8402/requests/other"],
     ["requesterScopeHash", `0x${"ab".repeat(32)}`],
-    ["quoteId", "q_other"],
+    ["quoteId", "00000000-0000-4000-8000-00000000ffff"],
     ["quoteHash", `0x${"cd".repeat(32)}`],
     ["paymentHash", `0x${"ef".repeat(32)}`],
-    ["action", "implement"],
+    ["action", "launch.open"],
     ["asset", OTHER],
     ["amount", "1"],
     ["payTo", OTHER],
@@ -205,14 +241,14 @@ describe("QuoteApproval: a validly signed approval with any wrong field is refus
     const reordered = reverseKeys(signed.payment);
     const header = Buffer.from(JSON.stringify(reordered)).toString("base64");
     assert.notEqual(header, signed.paymentHeader);
-    assert.equal(state.submit(SCOPE, id, header, { quoteSignature: signed.quoteSignature }).status, 200);
+    assert.equal(state.submit(SCOPE, id, header, { quoteSignature: signed.quoteSignature }).status, 202);
   });
 });
 
 test("an expired quote is refused with 410 even with a valid payment", () => {
   let now = FIXED_NOW_MS;
   const state = new MockState({ now: () => now });
-  const { order } = state.quote(SCOPE, { requestKey: "00000000-0000-4000-8000-000000000043", action: "echo", input: { message: "hi" } }, "http://x");
+  const { order } = state.quote(SCOPE, { requestKey: "00000000-0000-4000-8000-000000000043", action: "job.open", input: FIXED_JOB_INPUT }, "http://x");
   const challenge = state.submit(SCOPE, order.id, undefined, undefined).body as PaymentChallenge;
   const signed = signPayment(challenge, TEST_PAYER_KEY);
   now += (challenge.quote.expiresAt - FIXED_NOW_MS / 1000) * 1000;

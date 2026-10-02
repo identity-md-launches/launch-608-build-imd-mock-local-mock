@@ -1,5 +1,6 @@
 // Shapes and constants of the IMD paid-request flow, shared by the mock
-// server, the reference client and the conformance suite.
+// server, the reference client and the conformance suite. The shapes follow
+// https://imd.fun/docs#paid and the live https://api.imd.fun/openapi.json.
 
 import { createHash } from "node:crypto";
 import type { TypedData, TypedDataTypes } from "./crypto/eip712.js";
@@ -13,34 +14,33 @@ export const NETWORK = "eip155:1";
 /** IMD token on Ethereum mainnet. */
 export const IMD_TOKEN: Hex = "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7";
 export const IMD_DECIMALS = 18;
-/** 0.5 IMD per action (per run for schedules). */
+/** 0.5 IMD per action, and per run for a schedule. */
 export const PRICE_PER_ACTION = "500000000000000000";
+export const DEFAULT_QUOTE_TTL_SECONDS = 600;
+/** accepts[0].maxTimeoutSeconds, as the live API reports it. */
+export const MAX_TIMEOUT_SECONDS = 300;
 export const PERMIT2_ADDRESS: Hex = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 /** x402 "exact" scheme Permit2 proxy: the spender of every permit. */
 export const X402_PERMIT2_PROXY: Hex = "0x402085c248EeA27D92E8b30b2C58ed07f9E20001";
 /** A permit deadline must be at least this many seconds before quote.expiresAt. */
 export const DEADLINE_MARGIN_SECONDS = 5;
 
-/** Statuses a client keeps polling through. */
+/** `GET /requests/:id` statuses a client keeps polling through. */
 export const PENDING_STATUSES = ["quoted", "payment_pending", "admission_pending"] as const;
 
-export type OrderStatus =
-  | "quoted"
-  | "payment_pending"
-  | "admission_pending"
-  | "running"
-  | "completed"
-  | "refused"
-  | "expired";
+/** The status of the order itself. */
+export type OrderStatus = "quoted" | "expired" | "payment_pending" | "payment_failed" | "paid";
+/** The top-level status of `GET /requests/:id`. */
+export type RequestStatus = OrderStatus | "admission_pending" | "admitted";
 
 export interface PaymentRequirements {
   scheme: "exact";
   network: string;
-  amount: string;
   asset: string;
+  amount: string;
   payTo: string;
   maxTimeoutSeconds: number;
-  extra: { assetTransferMethod: "permit2"; name: string; version: string };
+  extra: { assetTransferMethod: "permit2" };
 }
 
 export interface ResourceInfo {
@@ -49,23 +49,63 @@ export interface ResourceInfo {
   mimeType: string;
 }
 
+export interface QuotePayment {
+  network: string;
+  asset: string;
+  amount: string;
+  payTo: string;
+  decimals: number;
+  scheme: "exact";
+}
+
 export interface Quote {
+  v: 1;
   id: string;
-  quoteHash: string; // 64 hex chars, no 0x
   action: string;
-  payment: { asset: string; amount: string; payTo: string };
+  policyVersion: string;
+  inputHash: string; // 64 hex chars, no 0x
+  issuedAt: number; // unix seconds
   expiresAt: number; // unix seconds
+  payment: QuotePayment;
+  /** Price of one unit; set on the actions charged per run. */
+  unitAmount?: string;
+  /** Units bought; set on the actions charged per run. */
+  runs?: number;
+  terms: { purchase: "action-admission"; resultGuaranteed: false };
+  quoteHash: string; // 64 hex chars, no 0x
+}
+
+export interface Order {
+  id: string;
+  requestKey: string;
+  status: OrderStatus;
+  paidAt: string | null;
+  quote: Quote;
+  /** The prepared input the quote pinned, as canonical JSON. */
+  inputJson: string;
+  createdAt: string;
 }
 
 export interface PaymentChallenge {
   x402Version: 2;
-  error: "payment_required";
+  resource: ResourceInfo;
   accepts: PaymentRequirements[];
   quote: Quote;
-  resource: ResourceInfo;
-  resourceUrl: string;
   requesterScopeHash: string; // 64 hex chars, no 0x
+  resourceUrl: string;
+  /** The prepared input saved with the quote. Inspect it before signing. */
+  input: unknown;
 }
+
+/** `GET /requests/:id`. */
+export interface RequestStatusResponse {
+  status: RequestStatus;
+  order: Order;
+  payment: ({ status: string; paid: boolean; transactionHash: string } & Record<string, unknown>) | null;
+  admission: { action: string; result: AdmissionResult } | null;
+}
+
+export type AdmissionResult = { kind: string } & Record<string, unknown>;
 
 export interface Permit2Authorization {
   from: string;
@@ -81,6 +121,8 @@ export interface PaymentPayload {
   resource: ResourceInfo;
   accepted: PaymentRequirements;
   payload: { signature: string; permit2Authorization: Permit2Authorization };
+  /** Optional and, if present, empty: what a stock x402 client may attach. */
+  extensions?: Record<string, never>;
 }
 
 export interface QuoteApproval {
@@ -205,4 +247,12 @@ export function paymentHash(payment: unknown): Hex {
 
 export function encodePaymentHeader(payment: PaymentPayload): string {
   return Buffer.from(JSON.stringify(payment), "utf8").toString("base64");
+}
+
+/** A deterministic, well-formed UUID v4 derived from a label. */
+export function uuidFrom(label: string): string {
+  const h = sha256Hex(label);
+  const version = `4${h.slice(13, 16)}`;
+  const variant = `${"89ab"[parseInt(h[16], 16) % 4]}${h.slice(17, 20)}`;
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${version}-${variant}-${h.slice(20, 32)}`;
 }

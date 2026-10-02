@@ -14,7 +14,15 @@ export declare function buildVectors(): {
         requestKey: string;
         action: string;
         input: {
-            message: string;
+            objective: string;
+            skill: string;
+            outputs: {
+                name: string;
+                path: string;
+                mediaType: string;
+            }[];
+            minCitations: number;
+            github: boolean;
         };
     };
     challenge: PaymentChallenge;

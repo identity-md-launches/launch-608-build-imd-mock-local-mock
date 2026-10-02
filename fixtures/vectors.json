@@ -5,52 +5,84 @@
     "requesterScopeHash": "6da465cfeb36b3be2212cf1b1ec1601e8e3fbff0b5fc55b16d092984d304d49b",
     "payerPrivateKey": "0x849d0232281d21e9ddd59555fec0c9553d3af72d9ee19fe94e6347b7818a962f",
     "payerAddress": "0xEA0755C631cC6004b81d55c2b0c76187A82323A6",
-    "mockPayTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432"
+    "mockPayTo": "0x8dc3ade127bd4ef8e60008b0e20b7e075b71a432"
   },
   "nowMs": 1767225600000,
   "quoteRequest": {
     "requestKey": "00000000-0000-4000-8000-000000000001",
-    "action": "echo",
+    "action": "job.open",
     "input": {
-      "message": "hello imd-mock"
+      "objective": "Write a sourced report comparing three approaches to deterministic EVM testing.",
+      "skill": "research-report",
+      "outputs": [
+        {
+          "name": "report",
+          "path": "artifacts/report.md",
+          "mediaType": "text/markdown"
+        }
+      ],
+      "minCitations": 5,
+      "github": false
     }
   },
   "challenge": {
     "x402Version": 2,
-    "error": "payment_required",
+    "resource": {
+      "url": "http://127.0.0.1:8402/requests/15d7a1d2-b184-4d11-a486-673db0d452d2",
+      "description": "One job.open request",
+      "mimeType": "application/json"
+    },
     "accepts": [
       {
         "scheme": "exact",
         "network": "eip155:1",
-        "amount": "500000000000000000",
         "asset": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
-        "payTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
-        "maxTimeoutSeconds": 600,
+        "amount": "500000000000000000",
+        "payTo": "0x8dc3ade127bd4ef8e60008b0e20b7e075b71a432",
+        "maxTimeoutSeconds": 300,
         "extra": {
-          "assetTransferMethod": "permit2",
-          "name": "IMD",
-          "version": "1"
+          "assetTransferMethod": "permit2"
         }
       }
     ],
     "quote": {
-      "id": "q_19b2b6cc3471206ea24313c0",
-      "quoteHash": "e86c667c68da093f29189843172eac26cfd3a1245382e51fb9a1ba98e3b138d1",
-      "action": "echo",
+      "v": 1,
+      "id": "15d7a1d2-b184-4d11-a486-673db0d452d2",
+      "action": "job.open",
+      "policyVersion": "job-1",
+      "inputHash": "d8b64d4a1ad2dbab3a28779be0d2ea3293e3b8a0f5c0294658f9b11748cc90f0",
+      "issuedAt": 1767225600,
+      "expiresAt": 1767226200,
       "payment": {
+        "network": "eip155:1",
         "asset": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
         "amount": "500000000000000000",
-        "payTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432"
+        "payTo": "0x8dc3ade127bd4ef8e60008b0e20b7e075b71a432",
+        "decimals": 18,
+        "scheme": "exact"
       },
-      "expiresAt": 1767226200
+      "terms": {
+        "purchase": "action-admission",
+        "resultGuaranteed": false
+      },
+      "quoteHash": "79c510013204a8071aec11eca171d8715452dadca7d5c0bde524722a707e162b"
     },
-    "resource": {
-      "url": "http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit",
-      "description": "IMD paid action: echo",
-      "mimeType": "application/json"
-    },
-    "resourceUrl": "http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit",
-    "requesterScopeHash": "6da465cfeb36b3be2212cf1b1ec1601e8e3fbff0b5fc55b16d092984d304d49b"
+    "requesterScopeHash": "6da465cfeb36b3be2212cf1b1ec1601e8e3fbff0b5fc55b16d092984d304d49b",
+    "resourceUrl": "http://127.0.0.1:8402/requests/15d7a1d2-b184-4d11-a486-673db0d452d2",
+    "input": {
+      "contracts": [],
+      "github": false,
+      "objective": "Write a sourced report comparing three approaches to deterministic EVM testing.",
+      "skill": "research-report",
+      "outputs": [
+        {
+          "name": "report",
+          "path": "artifacts/report.md",
+          "mediaType": "text/markdown"
+        }
+      ],
+      "minCitations": 5
+    }
   },
   "permit2": {
     "encodedType": "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,Witness witness)TokenPermissions(address token,uint256 amount)Witness(address to,uint256 validAfter)",
@@ -114,7 +146,7 @@
         "nonce": "37066134521868198288036064146033337282187670171898912863397750053554011059019",
         "deadline": "1767226195",
         "witness": {
-          "to": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
+          "to": "0x8dc3ade127bd4ef8e60008b0e20b7e075b71a432",
           "validAfter": "0"
         }
       }
@@ -125,21 +157,19 @@
   "payment": {
     "x402Version": 2,
     "resource": {
-      "url": "http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit",
-      "description": "IMD paid action: echo",
+      "url": "http://127.0.0.1:8402/requests/15d7a1d2-b184-4d11-a486-673db0d452d2",
+      "description": "One job.open request",
       "mimeType": "application/json"
     },
     "accepted": {
       "scheme": "exact",
       "network": "eip155:1",
-      "amount": "500000000000000000",
       "asset": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
-      "payTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
-      "maxTimeoutSeconds": 600,
+      "amount": "500000000000000000",
+      "payTo": "0x8dc3ade127bd4ef8e60008b0e20b7e075b71a432",
+      "maxTimeoutSeconds": 300,
       "extra": {
-        "assetTransferMethod": "permit2",
-        "name": "IMD",
-        "version": "1"
+        "assetTransferMethod": "permit2"
       }
     },
     "payload": {
@@ -154,14 +184,14 @@
         "nonce": "37066134521868198288036064146033337282187670171898912863397750053554011059019",
         "deadline": "1767226195",
         "witness": {
-          "to": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
+          "to": "0x8dc3ade127bd4ef8e60008b0e20b7e075b71a432",
           "validAfter": "0"
         }
       }
     }
   },
-  "paymentCanonicalJson": "{\"accepted\":{\"amount\":\"500000000000000000\",\"asset\":\"0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7\",\"extra\":{\"assetTransferMethod\":\"permit2\",\"name\":\"IMD\",\"version\":\"1\"},\"maxTimeoutSeconds\":600,\"network\":\"eip155:1\",\"payTo\":\"0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432\",\"scheme\":\"exact\"},\"payload\":{\"permit2Authorization\":{\"deadline\":\"1767226195\",\"from\":\"0xEA0755C631cC6004b81d55c2b0c76187A82323A6\",\"nonce\":\"37066134521868198288036064146033337282187670171898912863397750053554011059019\",\"permitted\":{\"amount\":\"500000000000000000\",\"token\":\"0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7\"},\"spender\":\"0x402085c248EeA27D92E8b30b2C58ed07f9E20001\",\"witness\":{\"to\":\"0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432\",\"validAfter\":\"0\"}},\"signature\":\"0xf12e505997ac4ec218dbdf0b37fda46067a3102f49fb620c8fcfa3b8c9fb14bf45ea36768cf75e5125949a6059fabc76d6aef51da8c6adb93f99905d3f7b240c1c\"},\"resource\":{\"description\":\"IMD paid action: echo\",\"mimeType\":\"application/json\",\"url\":\"http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit\"},\"x402Version\":2}",
-  "paymentSignatureHeader": "eyJ4NDAyVmVyc2lvbiI6MiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cDovLzEyNy4wLjAuMTo4NDAyL3JlcXVlc3RzL3JlcV82ODM0ZjM2YzliYzk0MDdkZGU2MWEzZDcvc3VibWl0IiwiZGVzY3JpcHRpb24iOiJJTUQgcGFpZCBhY3Rpb246IGVjaG8iLCJtaW1lVHlwZSI6ImFwcGxpY2F0aW9uL2pzb24ifSwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiZWlwMTU1OjEiLCJhbW91bnQiOiI1MDAwMDAwMDAwMDAwMDAwMDAiLCJhc3NldCI6IjB4ZDM0YTk5YmMwZjY3YWUxYmJkNjNjNjYwZTZkMGIwZGQwM2UyNjNiNyIsInBheVRvIjoiMHg4ZEMzQURlMTI3QmQ0RWY4ZTYwMDA4QjBlMjBiN0UwNzVCNzFBNDMyIiwibWF4VGltZW91dFNlY29uZHMiOjYwMCwiZXh0cmEiOnsiYXNzZXRUcmFuc2Zlck1ldGhvZCI6InBlcm1pdDIiLCJuYW1lIjoiSU1EIiwidmVyc2lvbiI6IjEifX0sInBheWxvYWQiOnsic2lnbmF0dXJlIjoiMHhmMTJlNTA1OTk3YWM0ZWMyMThkYmRmMGIzN2ZkYTQ2MDY3YTMxMDJmNDlmYjYyMGM4ZmNmYTNiOGM5ZmIxNGJmNDVlYTM2NzY4Y2Y3NWU1MTI1OTQ5YTYwNTlmYWJjNzZkNmFlZjUxZGE4YzZhZGI5M2Y5OTkwNWQzZjdiMjQwYzFjIiwicGVybWl0MkF1dGhvcml6YXRpb24iOnsiZnJvbSI6IjB4RUEwNzU1QzYzMWNDNjAwNGI4MWQ1NWMyYjBjNzYxODdBODIzMjNBNiIsInBlcm1pdHRlZCI6eyJ0b2tlbiI6IjB4ZDM0YTk5YmMwZjY3YWUxYmJkNjNjNjYwZTZkMGIwZGQwM2UyNjNiNyIsImFtb3VudCI6IjUwMDAwMDAwMDAwMDAwMDAwMCJ9LCJzcGVuZGVyIjoiMHg0MDIwODVjMjQ4RWVBMjdEOTJFOGIzMGIyQzU4ZWQwN2Y5RTIwMDAxIiwibm9uY2UiOiIzNzA2NjEzNDUyMTg2ODE5ODI4ODAzNjA2NDE0NjAzMzMzNzI4MjE4NzY3MDE3MTg5ODkxMjg2MzM5Nzc1MDA1MzU1NDAxMTA1OTAxOSIsImRlYWRsaW5lIjoiMTc2NzIyNjE5NSIsIndpdG5lc3MiOnsidG8iOiIweDhkQzNBRGUxMjdCZDRFZjhlNjAwMDhCMGUyMGI3RTA3NUI3MUE0MzIiLCJ2YWxpZEFmdGVyIjoiMCJ9fX19",
+  "paymentCanonicalJson": "{\"accepted\":{\"amount\":\"500000000000000000\",\"asset\":\"0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7\",\"extra\":{\"assetTransferMethod\":\"permit2\"},\"maxTimeoutSeconds\":300,\"network\":\"eip155:1\",\"payTo\":\"0x8dc3ade127bd4ef8e60008b0e20b7e075b71a432\",\"scheme\":\"exact\"},\"payload\":{\"permit2Authorization\":{\"deadline\":\"1767226195\",\"from\":\"0xEA0755C631cC6004b81d55c2b0c76187A82323A6\",\"nonce\":\"37066134521868198288036064146033337282187670171898912863397750053554011059019\",\"permitted\":{\"amount\":\"500000000000000000\",\"token\":\"0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7\"},\"spender\":\"0x402085c248EeA27D92E8b30b2C58ed07f9E20001\",\"witness\":{\"to\":\"0x8dc3ade127bd4ef8e60008b0e20b7e075b71a432\",\"validAfter\":\"0\"}},\"signature\":\"0xf12e505997ac4ec218dbdf0b37fda46067a3102f49fb620c8fcfa3b8c9fb14bf45ea36768cf75e5125949a6059fabc76d6aef51da8c6adb93f99905d3f7b240c1c\"},\"resource\":{\"description\":\"One job.open request\",\"mimeType\":\"application/json\",\"url\":\"http://127.0.0.1:8402/requests/15d7a1d2-b184-4d11-a486-673db0d452d2\"},\"x402Version\":2}",
+  "paymentSignatureHeader": "eyJ4NDAyVmVyc2lvbiI6MiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cDovLzEyNy4wLjAuMTo4NDAyL3JlcXVlc3RzLzE1ZDdhMWQyLWIxODQtNGQxMS1hNDg2LTY3M2RiMGQ0NTJkMiIsImRlc2NyaXB0aW9uIjoiT25lIGpvYi5vcGVuIHJlcXVlc3QiLCJtaW1lVHlwZSI6ImFwcGxpY2F0aW9uL2pzb24ifSwiYWNjZXB0ZWQiOnsic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiZWlwMTU1OjEiLCJhc3NldCI6IjB4ZDM0YTk5YmMwZjY3YWUxYmJkNjNjNjYwZTZkMGIwZGQwM2UyNjNiNyIsImFtb3VudCI6IjUwMDAwMDAwMDAwMDAwMDAwMCIsInBheVRvIjoiMHg4ZGMzYWRlMTI3YmQ0ZWY4ZTYwMDA4YjBlMjBiN2UwNzViNzFhNDMyIiwibWF4VGltZW91dFNlY29uZHMiOjMwMCwiZXh0cmEiOnsiYXNzZXRUcmFuc2Zlck1ldGhvZCI6InBlcm1pdDIifX0sInBheWxvYWQiOnsic2lnbmF0dXJlIjoiMHhmMTJlNTA1OTk3YWM0ZWMyMThkYmRmMGIzN2ZkYTQ2MDY3YTMxMDJmNDlmYjYyMGM4ZmNmYTNiOGM5ZmIxNGJmNDVlYTM2NzY4Y2Y3NWU1MTI1OTQ5YTYwNTlmYWJjNzZkNmFlZjUxZGE4YzZhZGI5M2Y5OTkwNWQzZjdiMjQwYzFjIiwicGVybWl0MkF1dGhvcml6YXRpb24iOnsiZnJvbSI6IjB4RUEwNzU1QzYzMWNDNjAwNGI4MWQ1NWMyYjBjNzYxODdBODIzMjNBNiIsInBlcm1pdHRlZCI6eyJ0b2tlbiI6IjB4ZDM0YTk5YmMwZjY3YWUxYmJkNjNjNjYwZTZkMGIwZGQwM2UyNjNiNyIsImFtb3VudCI6IjUwMDAwMDAwMDAwMDAwMDAwMCJ9LCJzcGVuZGVyIjoiMHg0MDIwODVjMjQ4RWVBMjdEOTJFOGIzMGIyQzU4ZWQwN2Y5RTIwMDAxIiwibm9uY2UiOiIzNzA2NjEzNDUyMTg2ODE5ODI4ODAzNjA2NDE0NjAzMzMzNzI4MjE4NzY3MDE3MTg5ODkxMjg2MzM5Nzc1MDA1MzU1NDAxMTA1OTAxOSIsImRlYWRsaW5lIjoiMTc2NzIyNjE5NSIsIndpdG5lc3MiOnsidG8iOiIweDhkYzNhZGUxMjdiZDRlZjhlNjAwMDhiMGUyMGI3ZTA3NWI3MWE0MzIiLCJ2YWxpZEFmdGVyIjoiMCJ9fX19",
   "quoteApproval": {
     "encodedType": "QuoteApproval(string resource,bytes32 requesterScopeHash,string quoteId,bytes32 quoteHash,bytes32 paymentHash,string action,address asset,uint256 amount,address payTo,uint256 expiresAt)",
     "typedData": {
@@ -216,22 +246,22 @@
       },
       "primaryType": "QuoteApproval",
       "message": {
-        "resource": "http://127.0.0.1:8402/requests/req_6834f36c9bc9407dde61a3d7/submit",
+        "resource": "http://127.0.0.1:8402/requests/15d7a1d2-b184-4d11-a486-673db0d452d2",
         "requesterScopeHash": "0x6da465cfeb36b3be2212cf1b1ec1601e8e3fbff0b5fc55b16d092984d304d49b",
-        "quoteId": "q_19b2b6cc3471206ea24313c0",
-        "quoteHash": "0xe86c667c68da093f29189843172eac26cfd3a1245382e51fb9a1ba98e3b138d1",
-        "paymentHash": "0xeece696439bc08a60797871d5c6af23ebdec54756c949914e1865aa9b8f9b6f3",
-        "action": "echo",
+        "quoteId": "15d7a1d2-b184-4d11-a486-673db0d452d2",
+        "quoteHash": "0x79c510013204a8071aec11eca171d8715452dadca7d5c0bde524722a707e162b",
+        "paymentHash": "0xe2a56adbb37496b8348729085e018d74548f7598c86d9ad6f7af08c552f9cd0c",
+        "action": "job.open",
         "asset": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
         "amount": "500000000000000000",
-        "payTo": "0x8dC3ADe127Bd4Ef8e60008B0e20b7E075B71A432",
+        "payTo": "0x8dc3ade127bd4ef8e60008b0e20b7e075b71a432",
         "expiresAt": "1767226200"
       }
     },
-    "digest": "0x5078754c11b435bcf6d0a6523726a997ef5ea05ed76327d4e675e26fecc721ec",
-    "signature": "0xa552748f6a9ea39a0ff7b91a9435f93a80e6d6849e2abb9fd9ea2c241797217530950b3b0748ae2a9090213a6fef1ce9efa7a22f4c626763aa47c1065117fcfb1b"
+    "digest": "0xeb1bdda981d46d87ec067d3b9dac9c20cc72730b95a096bfe3759c99f89d987f",
+    "signature": "0x8c65c2da9c0ce0497812416a81ada358845f03d71ae37b3f74c359911842c795395d378d85f94fe598a8a70f7d27b129313761b77bf7e52406e58bb753a0bc011b"
   },
   "submitBody": {
-    "quoteSignature": "0xa552748f6a9ea39a0ff7b91a9435f93a80e6d6849e2abb9fd9ea2c241797217530950b3b0748ae2a9090213a6fef1ce9efa7a22f4c626763aa47c1065117fcfb1b"
+    "quoteSignature": "0x8c65c2da9c0ce0497812416a81ada358845f03d71ae37b3f74c359911842c795395d378d85f94fe598a8a70f7d27b129313761b77bf7e52406e58bb753a0bc011b"
   }
 }

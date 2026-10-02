@@ -2,34 +2,51 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { ACTIONS, actionsExtension, cannedVerdict, validateRequest, type Problem } from "./actions.js";
-import { toChecksumAddress } from "./crypto/hex.js";
+import {
+  ACTIONS,
+  ACTION_NAMES,
+  STALE_MARKER,
+  actionsExtension,
+  cannedBlockers,
+  cannedSuggestions,
+  hasMarker,
+  limitsExtension,
+  pricedPerExtension,
+  type Note,
+  type Problem,
+  validateRequest,
+} from "./actions.js";
 import { MOCK_PAY_TO } from "./fixtures.js";
 import {
-  CHAIN_ID,
-  DEADLINE_MARGIN_SECONDS,
+  DEFAULT_QUOTE_TTL_SECONDS,
   EXPERIMENTAL_NOTICE,
   IMD_DECIMALS,
   IMD_TOKEN,
+  MAX_TIMEOUT_SECONDS,
   NETWORK,
-  PERMIT2_ADDRESS,
   PRICE_PER_ACTION,
-  X402_PERMIT2_PROXY,
+  QUOTE_APPROVAL_DOMAIN,
+  QUOTE_APPROVAL_TYPES,
   canonicalJson,
   sha256Hex,
+  uuidFrom,
+  type AdmissionResult,
+  type Order,
   type OrderStatus,
   type PaymentChallenge,
   type PaymentRequirements,
   type Quote,
+  type RequestStatus,
+  type RequestStatusResponse,
 } from "./protocol.js";
 import { verifyPaidSubmit } from "./verify.js";
 
 export interface MockOptions {
-  /** Refuse every distinct /requests/check body once, then answer normally. */
+  /** Add an evaluator-noise blocker to each distinct /requests/check body once. */
   flaky?: boolean;
   /** Clock in milliseconds. Default Date.now. */
   now?: () => number;
-  quoteLifetimeSeconds?: number;
+  quoteTtlSeconds?: number;
   payTo?: string;
   /** Public base URL used in resourceUrl. Default: http://<Host header>. */
   publicUrl?: string;
@@ -37,30 +54,41 @@ export interface MockOptions {
   log?: (line: string) => void;
 }
 
-interface Job {
+interface JobRecord {
   id: string;
   requestId: string;
-  action: string;
-  status: "queued" | "running" | "completed";
-  result?: Record<string, unknown>;
+  state: "executing" | "completed";
+  template: string | null;
+  objective: string;
+  paidBy: string;
+  parentJobId: string | null;
   createdAt: number;
   updatedAt: number;
 }
 
-interface Order {
+interface Replay {
+  key: string;
+  status: number;
+  body: unknown;
+  headers: Record<string, string>;
+}
+
+interface OrderRecord {
   id: string;
   scope: string;
   requestKey: string;
   action: string;
   input: Record<string, unknown>;
-  status: OrderStatus;
+  quote: Quote;
   challenge: PaymentChallenge;
+  status: OrderStatus;
   createdAt: number;
-  updatedAt: number;
-  payment?: { payer: string; nonce: string; paymentHash: string; transaction: string };
+  paidAt: number | null;
+  payment?: { payer: string; nonce: string; paymentHash: string; transactionHash: string };
+  admission?: { action: string; result: AdmissionResult };
   jobId?: string;
-  outcome?: Record<string, unknown>;
-  refusal?: { reasons: string[] };
+  /** The exact bytes of the submit that settled, so a lost response can be re-read. */
+  replay?: Replay;
 }
 
 export class HttpError extends Error {
@@ -77,22 +105,23 @@ export class HttpError extends Error {
 const MAX_BODY_BYTES = 64 * 1024;
 const TOKEN = /^[0-9a-fA-F]{64}$/;
 const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const ISO = (ms: number) => new Date(ms).toISOString();
 
 export class MockState {
-  readonly orders = new Map<string, Order>();
-  readonly jobs = new Map<string, Job>();
+  readonly orders = new Map<string, OrderRecord>();
+  readonly jobs = new Map<string, JobRecord>();
   readonly requestKeys = new Map<string, string>();
   readonly usedNonces = new Set<string>();
   readonly flakySeen = new Set<string>();
   readonly flaky: boolean;
-  readonly quoteLifetimeSeconds: number;
+  readonly quoteTtlSeconds: number;
   readonly payTo: string;
   readonly now: () => number;
 
   constructor(readonly options: MockOptions = {}) {
     this.flaky = options.flaky ?? false;
-    this.quoteLifetimeSeconds = options.quoteLifetimeSeconds ?? 600;
-    this.payTo = toChecksumAddress(options.payTo ?? MOCK_PAY_TO);
+    this.quoteTtlSeconds = options.quoteTtlSeconds ?? DEFAULT_QUOTE_TTL_SECONDS;
+    this.payTo = (options.payTo ?? MOCK_PAY_TO).toLowerCase();
     this.now = options.now ?? Date.now;
   }
 
@@ -100,15 +129,15 @@ export class MockState {
     return Math.floor(this.now() / 1000);
   }
 
-  accepts(): PaymentRequirements {
+  accepts(amount: string): PaymentRequirements {
     return {
       scheme: "exact",
       network: NETWORK,
-      amount: PRICE_PER_ACTION,
       asset: IMD_TOKEN,
+      amount,
       payTo: this.payTo,
-      maxTimeoutSeconds: this.quoteLifetimeSeconds,
-      extra: { assetTransferMethod: "permit2", name: "IMD", version: "1" },
+      maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
+      extra: { assetTransferMethod: "permit2" },
     };
   }
 
@@ -116,21 +145,32 @@ export class MockState {
     return {
       mock: true,
       notice: EXPERIMENTAL_NOTICE,
-      x402Version: 2,
-      chainId: CHAIN_ID,
-      network: NETWORK,
-      asset: IMD_TOKEN,
-      assetSymbol: "IMD",
-      assetDecimals: IMD_DECIMALS,
-      price: PRICE_PER_ACTION,
-      priceUnit: "per action (per run for schedules)",
-      payTo: this.payTo,
-      quoteLifetimeSeconds: this.quoteLifetimeSeconds,
-      deadlineMarginSeconds: DEADLINE_MARGIN_SECONDS,
-      permit2: PERMIT2_ADDRESS,
-      spender: X402_PERMIT2_PROXY,
-      launchChains: [{ chainId: CHAIN_ID, network: NETWORK, name: "Ethereum" }],
-      actions: Object.keys(ACTIONS),
+      actions: actionsExtension(this.quoteTtlSeconds, this.payTo, false),
+      limits: limitsExtension(),
+      launches: {
+        defaultChainId: 11155111,
+        chains: [
+          {
+            chainId: 11155111,
+            name: "Sepolia",
+            testnet: true,
+            kinds: ["univ4_hook", "evm_project", "custom_token"],
+            pairings: [
+              {
+                pairWith: "eth",
+                currency: "0x0000000000000000000000000000000000000000",
+                symbol: "ETH",
+                name: "Sepolia Ether",
+                decimals: 18,
+                kinds: ["univ4_hook", "evm_project", "custom_token"],
+              },
+            ],
+          },
+        ],
+      },
+      pricedPer: pricedPerExtension(),
+      authentication: { scheme: "Bearer", tokenBytes: 32, encoding: "hex", creator: "client" },
+      payment: { x402Version: 2, scheme: "exact", assetTransferMethod: "permit2", quoteApproval: "EIP-712" },
     };
   }
 
@@ -142,43 +182,68 @@ export class MockState {
     });
     return {
       openapi: "3.1.0",
-      info: { title: "imd-mock", version: "0.1.0", description: `Local mock of the IMD paid-request API. ${EXPERIMENTAL_NOTICE}` },
-      paths: {
-        "/requests/capabilities": { get: op("Price, asset, payTo, quote lifetime, launch chains", ["200"]) },
-        "/requests/check": { post: op("Canned evaluator verdict, no payment", ["200", "422"]) },
-        "/requests/import": { post: op("Canned import of a public GitHub repo", ["200", "422"]) },
-        "/requests/quote": { post: op("Create a quoted order", ["200", "201", "401", "409", "422"]) },
-        "/requests/{id}/submit": { post: op("402 challenge, or a paid submit", ["200", "202", "400", "402", "404", "409", "410"]) },
-        "/requests/{id}": { get: op("Order status", ["200", "404"]) },
-        "/jobs/{id}": { get: op("Job status", ["200", "404"]) },
+      info: {
+        title: "imd-mock",
+        version: "0.1.0",
+        description: `Local mock of the IMD paid-request API. ${EXPERIMENTAL_NOTICE}`,
       },
-      "x-imd-actions": actionsExtension(this.quoteLifetimeSeconds),
+      "x-imd-mock": true,
+      "x-imd-actions": actionsExtension(this.quoteTtlSeconds, this.payTo, true),
+      "x-imd-quote-approval": {
+        domain: { ...QUOTE_APPROVAL_DOMAIN },
+        primaryType: "QuoteApproval",
+        types: QUOTE_APPROVAL_TYPES,
+      },
+      paths: {
+        "/requests/capabilities": { get: op("Enabled actions, limits, launch chains and payment method", ["200"]) },
+        "/requests/check": { post: op("Canned evaluator preflight: blockers and suggestions, no payment", ["200", "422"]) },
+        "/requests/import": { post: op("Canned import of a public GitHub repository", ["200", "422"]) },
+        "/requests/quote": { post: op("Validate input and save a priced order", ["200", "201", "401", "409", "422"]) },
+        "/requests/{id}/submit": { post: op("402 challenge, or a paid submit", ["200", "202", "400", "402", "404", "409", "410"]) },
+        "/requests/{id}": { get: op("Order status: {status, order, payment, admission}", ["200", "401", "404"]) },
+        "/jobs/{id}": { get: op("The canned job behind an admitted order", ["200", "404"]) },
+        "/jobs/{id}/result": { get: op("The canned job result", ["200", "404"]) },
+      },
     };
   }
 
+  /** POST /requests/check: {action, blockers, suggestions} plus the action's preview. */
   check(body: Record<string, unknown>) {
     const problems = validateRequest(body.action, body.input);
     if (problems.length > 0) throw invalidInput(problems);
+    const action = body.action as string;
+    const input = body.input as Record<string, unknown>;
+    const blockers: Note[] = [];
     if (this.flaky) {
-      const key = sha256Hex(canonicalJson({ action: body.action, input: body.input }));
+      const key = sha256Hex(canonicalJson({ action, input }));
       if (!this.flakySeen.has(key)) {
         this.flakySeen.add(key);
-        return { verdict: "refuse", reasons: ["evaluator noise (flaky mode): the same body will be accepted on retry"] };
+        blockers.push({ code: "evaluator_noise", detail: "evaluator noise (flaky mode): the same body has no blocker on retry" });
       }
     }
-    return cannedVerdict(body.input as Record<string, unknown>);
+    blockers.push(...cannedBlockers(input));
+    return { action, ...ACTIONS[action].preview(input), blockers, suggestions: cannedSuggestions(input) };
   }
 
+  /** POST /requests/import: canned, and never reaches the network. */
   importRepo(body: Record<string, unknown>) {
-    const m = typeof body.url === "string" ? /^https:\/\/github\.com\/([^/\s]+)\/([^/\s#?]+?)(\.git)?\/?$/.exec(body.url) : null;
+    const m = typeof body.url === "string" ? /^https:\/\/github\.com\/([^/\s]+)\/([^/\s#?]+?)(\.git)?(\/tree\/([^/\s]+))?\/?$/.exec(body.url) : null;
     if (!m) throw invalidInput([{ path: "url", message: "must be a public https://github.com/<owner>/<repo> URL" }]);
-    if (body.kind !== undefined && body.kind !== "repo") throw invalidInput([{ path: "kind", message: 'must be "repo"' }]);
+    if (body.kind !== undefined && !["site", "contracts", "code"].includes(body.kind as string)) {
+      throw invalidInput([{ path: "kind", message: "must be one of: site, contracts, code" }]);
+    }
     const repoUrl = `https://github.com/${m[1]}/${m[2]}`;
-    // Canned: the mock never fetches anything, so the commit is a stable fake.
-    return { repoUrl, baseCommit: sha256Hex(repoUrl).slice(0, 40), mock: true };
+    const ref = m[5] ?? "main";
+    // The mock fetches nothing, so the commit is a stable fake derived from the URL.
+    return {
+      ok: true,
+      mock: true,
+      source: { repoUrl, baseCommit: sha256Hex(`${repoUrl}#${ref}`).slice(0, 40), ref, sizeKb: 0, site: body.kind === "site" },
+    };
   }
 
-  quote(scope: string, body: Record<string, unknown>, baseUrl: string): { status: number; order: Order } {
+  /** POST /requests/quote. */
+  quote(scope: string, body: Record<string, unknown>, baseUrl: string): { status: number; order: OrderRecord } {
     const problems: Problem[] = [];
     if (typeof body.requestKey !== "string" || !UUID.test(body.requestKey)) {
       problems.push({ path: "requestKey", message: "must be a UUID" });
@@ -187,7 +252,16 @@ export class MockState {
     if (problems.length > 0) throw invalidInput(problems);
     const requestKey = (body.requestKey as string).toLowerCase();
     const action = body.action as string;
-    const input = body.input as Record<string, unknown>;
+    const spec = ACTIONS[action];
+    const input = spec.prepare(body.input as Record<string, unknown>);
+
+    const blockers = cannedBlockers(input);
+    if (blockers.length > 0) {
+      throw new HttpError(422, "invalid_input", "the evaluator blocked this request", {
+        problems: blockers.map((b) => ({ path: "input", message: b.detail })),
+        blockers,
+      });
+    }
 
     const existingId = this.requestKeys.get(`${scope}:${requestKey}`);
     if (existingId) {
@@ -198,58 +272,99 @@ export class MockState {
       return { status: 200, order: existing };
     }
 
-    const id = `req_${sha256Hex(`${scope}:${requestKey}`).slice(0, 24)}`;
-    const now = this.nowSeconds();
-    const expiresAt = now + this.quoteLifetimeSeconds;
-    const resourceUrl = `${baseUrl}/requests/${id}/submit`;
-    const payment = { asset: IMD_TOKEN, amount: PRICE_PER_ACTION, payTo: this.payTo };
-    const quoteId = `q_${sha256Hex(`quote:${id}`).slice(0, 24)}`;
-    const quote: Quote = {
-      id: quoteId,
-      quoteHash: sha256Hex(canonicalJson({ quoteId, requestId: id, action, input, payment, expiresAt, scope, resourceUrl })),
+    const id = uuidFrom(`imd-mock/order/${scope}/${requestKey}`);
+    const nowMs = this.now();
+    const issuedAt = Math.floor(nowMs / 1000);
+    const units = spec.units(input);
+    const amount = (BigInt(PRICE_PER_ACTION) * BigInt(units)).toString(10);
+    const quoteFields = {
+      v: 1 as const,
+      id,
       action,
-      payment,
-      expiresAt,
+      policyVersion: spec.version,
+      inputHash: sha256Hex(canonicalJson(input)),
+      issuedAt,
+      expiresAt: issuedAt + this.quoteTtlSeconds,
+      payment: {
+        network: NETWORK,
+        asset: IMD_TOKEN,
+        amount,
+        payTo: this.payTo,
+        decimals: IMD_DECIMALS,
+        scheme: "exact" as const,
+      },
+      ...(spec.pricedPer ? { unitAmount: PRICE_PER_ACTION, runs: units } : {}),
+      terms: { purchase: "action-admission" as const, resultGuaranteed: false as const },
     };
+    // quoteHash commits to every field of the quote except itself.
+    const quote: Quote = { ...quoteFields, quoteHash: sha256Hex(canonicalJson(quoteFields)) };
+    const resourceUrl = `${baseUrl}/requests/${id}`;
     const challenge: PaymentChallenge = {
       x402Version: 2,
-      error: "payment_required",
-      accepts: [this.accepts()],
+      resource: { url: resourceUrl, description: `One ${action} request`, mimeType: "application/json" },
+      accepts: [this.accepts(amount)],
       quote,
-      resource: { url: resourceUrl, description: `IMD paid action: ${action}`, mimeType: "application/json" },
-      resourceUrl,
       requesterScopeHash: scope,
+      resourceUrl,
+      input,
     };
-    const order: Order = { id, scope, requestKey, action, input, status: "quoted", challenge, createdAt: now, updatedAt: now };
+    const order: OrderRecord = {
+      id,
+      scope,
+      requestKey,
+      action,
+      input,
+      quote,
+      challenge,
+      status: "quoted",
+      createdAt: nowMs,
+      paidAt: null,
+    };
     this.orders.set(id, order);
     this.requestKeys.set(`${scope}:${requestKey}`, id);
     return { status: 201, order };
   }
 
-  order(scope: string, id: string): Order {
+  private record(scope: string, id: string): OrderRecord {
     const order = this.orders.get(id);
     if (!order || order.scope !== scope) throw new HttpError(404, "not_found", "no such request for this bearer token");
-    if ((order.status === "quoted" || order.status === "payment_pending") && this.nowSeconds() >= order.challenge.quote.expiresAt) {
-      this.setStatus(order, "expired");
+    if ((order.status === "quoted" || order.status === "payment_pending") && this.nowSeconds() >= order.quote.expiresAt) {
+      order.status = "expired";
     }
     return order;
   }
 
-  setStatus(order: Order, status: OrderStatus): void {
-    order.status = status;
-    order.updatedAt = this.nowSeconds();
-  }
+  /** POST /requests/{id}/submit, with or without the PAYMENT-SIGNATURE header. */
+  submit(
+    scope: string,
+    id: string,
+    paymentHeader: string | undefined,
+    body: unknown,
+  ): { status: number; body: unknown; headers: Record<string, string> } {
+    const order = this.record(scope, id);
+    if (paymentHeader === undefined) {
+      if (order.status === "expired") throw new HttpError(410, "quote_expired", "the quote has expired; request a new quote");
+      if (order.status === "quoted" || order.status === "payment_pending") {
+        order.status = "payment_pending";
+        return { status: 402, body: order.challenge, headers: { "payment-required": b64(order.challenge) } };
+      }
+      throw new HttpError(409, "already_paid", `request is ${this.statusOf(order)}`, { order: this.orderView(order) });
+    }
 
-  submit(scope: string, id: string, paymentHeader: string | undefined, body: unknown): { status: number; body: unknown; headers: Record<string, string> } {
-    const order = this.order(scope, id);
+    // The same submit bytes again: the documented recovery when a response is
+    // lost. It returns the first outcome and settles nothing a second time.
+    const replayKey = sha256Hex(`${paymentHeader.trim()}\n${canonicalJson(body)}`);
+    if (order.replay?.key === replayKey) {
+      return { ...order.replay, headers: { ...order.replay.headers, "payment-replayed": "true" } };
+    }
+
     if (order.status === "expired") throw new HttpError(410, "quote_expired", "the quote has expired; request a new quote");
     if (order.status !== "quoted" && order.status !== "payment_pending") {
-      throw new HttpError(409, "already_paid", `request is ${order.status}`, { order: this.orderView(order) });
+      throw new HttpError(409, "already_paid", `request is ${this.statusOf(order)}; resend the same payment bytes to re-read its outcome`, {
+        order: this.orderView(order),
+      });
     }
-    if (paymentHeader === undefined) {
-      this.setStatus(order, "payment_pending");
-      return { status: 402, body: order.challenge, headers: { "payment-required": b64(order.challenge) } };
-    }
+
     const result = verifyPaidSubmit({
       challenge: order.challenge,
       paymentHeader,
@@ -265,91 +380,173 @@ export class MockState {
     }
 
     this.usedNonces.add(`${result.payer.toLowerCase()}:${result.nonce}`);
-    // The mock settles nothing; the "transaction" is a stable fake hash.
-    const transaction = `0x${sha256Hex(`settle:${result.payer.toLowerCase()}:${result.nonce}`)}`;
-    order.payment = { payer: result.payer, nonce: result.nonce, paymentHash: result.paymentHash, transaction };
-    const settlement = b64({ success: true, transaction, network: NETWORK, payer: result.payer });
-    const spec = ACTIONS[order.action];
+    // The mock settles nothing; the transaction hash is a stable fake.
+    const transactionHash = `0x${sha256Hex(`settle:${result.payer.toLowerCase()}:${result.nonce}`)}`;
+    order.payment = { payer: result.payer, nonce: result.nonce, paymentHash: result.paymentHash, transactionHash };
+    order.status = "paid";
+    order.paidAt = this.now();
+    const headers = {
+      "payment-response": b64({ success: true, transaction: transactionHash, network: NETWORK, payer: result.payer }),
+    };
 
-    if (spec.completion === "sync") {
-      this.admit(order);
-      return { status: 200, body: { order: this.orderView(order), outcome: order.outcome ?? null }, headers: { "payment-response": settlement } };
-    }
-    this.setStatus(order, "admission_pending");
-    return { status: 202, body: { order: this.orderView(order) }, headers: { "payment-response": settlement } };
+    if (ACTIONS[order.action].admitsOnSubmit) this.admit(order);
+    const response: Replay = {
+      key: replayKey,
+      status: order.admission ? 200 : 202,
+      body: this.statusView(order),
+      headers,
+    };
+    order.replay = response;
+    return { status: response.status, body: response.body, headers };
   }
 
-  /** Runs the canned admission verdict: completes sync actions, queues a job for async ones. */
-  admit(order: Order): void {
-    const verdict = cannedVerdict(order.input);
-    if (verdict.verdict === "refuse") {
-      order.refusal = { reasons: verdict.reasons };
-      this.setStatus(order, "refused");
-      return;
-    }
+  /** Runs the canned admission: an order moves from admission_pending to admitted. */
+  admit(order: OrderRecord): void {
+    if (order.admission) return;
     const spec = ACTIONS[order.action];
-    if (spec.completion === "sync") {
-      order.outcome = spec.outcome(order.input);
-      this.setStatus(order, "completed");
+    if (hasMarker(order.input, STALE_MARKER)) {
+      order.admission = {
+        action: order.action,
+        result: {
+          kind: "refused",
+          problems: [{ code: "catalog_changed", detail: `the mock refuses any input containing ${STALE_MARKER} at admission` }],
+        },
+      };
       return;
     }
-    const now = this.nowSeconds();
-    const job: Job = { id: `job_${sha256Hex(`job:${order.id}`).slice(0, 24)}`, requestId: order.id, action: order.action, status: "queued", createdAt: now, updatedAt: now };
-    this.jobs.set(job.id, job);
-    order.jobId = job.id;
-    this.setStatus(order, "running");
+    const ids = {
+      jobId: uuidFrom(`imd-mock/job/${order.id}`),
+      workflowId: uuidFrom(`imd-mock/workflow/${order.id}`),
+      oracleRequestId: uuidFrom(`imd-mock/oracle/${order.id}`),
+      scheduleId: uuidFrom(`imd-mock/schedule/${order.id}`),
+    };
+    const result = spec.result(ids, order.input);
+    order.admission = { action: order.action, result };
+    const jobId = typeof result.jobId === "string" ? result.jobId : undefined;
+    if (jobId) {
+      const nowMs = this.now();
+      this.jobs.set(jobId, {
+        id: jobId,
+        requestId: order.id,
+        state: "executing",
+        template: typeof order.input.shape === "string" ? `shape:${order.input.shape}` : (order.input.template as string) ?? null,
+        objective: typeof order.input.objective === "string" ? order.input.objective : `One ${order.action} request`,
+        paidBy: order.payment?.payer.toLowerCase() ?? "",
+        parentJobId: (order.input.parentJobId as string) ?? null,
+        createdAt: nowMs,
+        updatedAt: nowMs,
+      });
+      order.jobId = jobId;
+    }
   }
 
   /**
-   * Each read advances an async order one step, so polling is deterministic:
-   * admission_pending -> running (job queued) -> job running -> completed.
+   * The mock has no timers, so every read advances the work one step:
+   * admission_pending -> admitted (job executing) -> job completed.
    */
-  advance(order: Order): void {
-    if (order.status === "admission_pending") return this.admit(order);
-    if (order.status !== "running" || !order.jobId) return;
-    const job = this.jobs.get(order.jobId)!;
-    job.updatedAt = this.nowSeconds();
-    if (job.status === "queued") {
-      job.status = "running";
-      return;
+  private advance(order: OrderRecord): void {
+    if (order.status !== "paid") return;
+    if (!order.admission) return this.admit(order);
+    const job = order.jobId ? this.jobs.get(order.jobId) : undefined;
+    if (job && job.state === "executing") {
+      job.state = "completed";
+      job.updatedAt = this.now();
     }
-    job.status = "completed";
-    job.result = ACTIONS[order.action].outcome(order.input);
-    order.outcome = job.result;
-    this.setStatus(order, "completed");
   }
 
-  getRequest(scope: string, id: string) {
-    const order = this.order(scope, id);
-    const view = this.orderView(order);
+  statusOf(order: OrderRecord): RequestStatus {
+    if (order.status !== "paid") return order.status;
+    return order.admission ? "admitted" : "admission_pending";
+  }
+
+  /** GET /requests/{id}. */
+  getRequest(scope: string, id: string): RequestStatusResponse {
+    const order = this.record(scope, id);
+    const view = this.statusView(order);
     this.advance(order);
-    return { order: view };
+    return view;
   }
 
-  getJob(scope: string, id: string) {
+  /** GET /jobs/{id}: public, like the live route. */
+  getJob(id: string) {
     const job = this.jobs.get(id);
-    const order = job && this.orders.get(job.requestId);
-    if (!job || !order || order.scope !== scope) throw new HttpError(404, "not_found", "no such job for this bearer token");
-    const view = { ...job };
-    this.advance(order);
-    return { job: view };
+    if (!job) throw new HttpError(404, "not_found", "no such job");
+    const view = this.jobView(job);
+    const order = this.orders.get(job.requestId);
+    if (order) this.advance(order);
+    return view;
   }
 
-  orderView(order: Order) {
-    const { challenge } = order;
+  /** GET /jobs/{id}/result. */
+  getJobResult(id: string) {
+    const job = this.jobs.get(id);
+    if (!job) throw new HttpError(404, "not_found", "no such job");
+    const complete = job.state === "completed";
+    const view = {
+      jobId: job.id,
+      projectId: job.id,
+      state: job.state,
+      complete,
+      mock: true,
+      source: [],
+      files: complete
+        ? [
+            {
+              name: "summary",
+              path: "artifacts/summary.md",
+              mediaType: "text/markdown",
+              hash: sha256Hex(`imd-mock/result/${job.id}`),
+              bytes: 0,
+              submissionHash: sha256Hex(`imd-mock/submission/${job.id}`),
+              url: `/artifacts/${sha256Hex(`imd-mock/result/${job.id}`)}`,
+            },
+          ]
+        : [],
+      delivery: null,
+    };
+    const order = this.orders.get(job.requestId);
+    if (order) this.advance(order);
+    return view;
+  }
+
+  orderView(order: OrderRecord): Order {
     return {
       id: order.id,
       requestKey: order.requestKey,
-      action: order.action,
       status: order.status,
-      quote: challenge.quote,
-      resourceUrl: challenge.resourceUrl,
-      createdAt: order.createdAt,
-      updatedAt: order.updatedAt,
-      ...(order.payment ? { payment: { payer: order.payment.payer, transaction: order.payment.transaction, network: NETWORK } } : {}),
-      ...(order.jobId ? { jobId: order.jobId } : {}),
-      ...(order.outcome ? { outcome: order.outcome } : {}),
-      ...(order.refusal ? { refusal: order.refusal } : {}),
+      paidAt: order.paidAt === null ? null : ISO(order.paidAt),
+      quote: order.quote,
+      inputJson: canonicalJson(order.input),
+      createdAt: ISO(order.createdAt),
+    };
+  }
+
+  statusView(order: OrderRecord): RequestStatusResponse {
+    return {
+      status: this.statusOf(order),
+      order: this.orderView(order),
+      payment: order.payment
+        ? { status: "confirmed", paid: true, transactionHash: order.payment.transactionHash, payer: order.payment.payer, network: NETWORK }
+        : null,
+      admission: order.admission ?? null,
+    };
+  }
+
+  jobView(job: JobRecord) {
+    return {
+      id: job.id,
+      state: job.state,
+      template: job.template,
+      objective: job.objective,
+      blockedReason: null,
+      createdAt: ISO(job.createdAt),
+      updatedAt: ISO(job.updatedAt),
+      paidBy: job.paidBy,
+      parentJobId: job.parentJobId,
+      mock: true,
+      project: { id: job.id, head: job.state === "completed" ? job.id : null, running: job.state === "completed" ? null : job.id, versions: [] },
+      delivery: null,
+      nodes: [{ key: "build", state: job.state, attempt: 1, verdict: job.state === "completed" ? "accepted" : null }],
     };
   }
 }
@@ -419,8 +616,10 @@ code{background:#f2f2f2;padding:0 .25rem}</style></head>
 <li><code>POST /requests/quote</code></li>
 <li><code>POST /requests/{id}/submit</code></li>
 <li><code>GET /requests/{id}</code></li>
-<li><code>GET /jobs/{id}</code></li>
-</ul></body></html>
+<li><code>GET /jobs/{id}</code> and <code>GET /jobs/{id}/result</code></li>
+</ul>
+<p>Actions: ${ACTION_NAMES.map((a) => `<code>${a}</code>`).join(", ")}.</p>
+</body></html>
 `;
 }
 
@@ -442,7 +641,7 @@ export function createMockServer(options: MockOptions = {}): { server: Server; s
       if (req.headers.origin !== undefined) {
         throw new HttpError(403, "browser_origin_forbidden", "the paid-request API is server-side only");
       }
-      const baseUrl = options.publicUrl ?? `http://${req.headers.host ?? "localhost"}`;
+      const baseUrl = (options.publicUrl ?? `http://${req.headers.host ?? "localhost"}`).replace(/\/+$/, "");
       let m: RegExpExecArray | null;
 
       if (method === "GET" && path === "/requests/capabilities") return send(res, 200, state.capabilities());
@@ -451,8 +650,8 @@ export function createMockServer(options: MockOptions = {}): { server: Server; s
       if (method === "POST" && path === "/requests/import") return send(res, 200, state.importRepo(objectBody(await readJson(req))));
       if (method === "POST" && path === "/requests/quote") {
         const scope = scopeOf(req);
-        const { status, order } = state.quote(scope, objectBody(await readJson(req)), baseUrl.replace(/\/+$/, ""));
-        return send(res, status, { order: state.orderView(order) });
+        const { status, order } = state.quote(scope, objectBody(await readJson(req)), baseUrl);
+        return send(res, status, { created: status === 201, order: state.orderView(order) });
       }
       if (method === "POST" && (m = /^\/requests\/([^/]+)\/submit$/.exec(path))) {
         const scope = scopeOf(req);
@@ -464,8 +663,11 @@ export function createMockServer(options: MockOptions = {}): { server: Server; s
       if (method === "GET" && (m = /^\/requests\/([^/]+)$/.exec(path))) {
         return send(res, 200, state.getRequest(scopeOf(req), decodeURIComponent(m[1])));
       }
+      if (method === "GET" && (m = /^\/jobs\/([^/]+)\/result$/.exec(path))) {
+        return send(res, 200, state.getJobResult(decodeURIComponent(m[1])));
+      }
       if (method === "GET" && (m = /^\/jobs\/([^/]+)$/.exec(path))) {
-        return send(res, 200, state.getJob(scopeOf(req), decodeURIComponent(m[1])));
+        return send(res, 200, state.getJob(decodeURIComponent(m[1])));
       }
       throw new HttpError(404, "not_found", `no route for ${method} ${path}`);
     } catch (err) {

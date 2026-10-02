@@ -1,8 +1,8 @@
-export { createMockServer, startMock, MockState, type MockOptions } from "./server.js";
-export { ImdClient, signPayment, signAuthorization, checkChallenge, type Capabilities, type SignedPayment } from "./client.js";
+export { createMockServer, startMock, MockState, HttpError, type MockOptions } from "./server.js";
+export { ImdClient, signPayment, signAuthorization, signQuoteApproval, checkChallenge, type Capabilities, type ActionCapability, type SignedPayment, } from "./client.js";
 export { runConformance, CHECKS } from "./conformance.js";
 export { verifyPaidSubmit, type VerifyResult } from "./verify.js";
-export { ACTIONS, REFUSE_MARKER } from "./actions.js";
+export { ACTIONS, ACTION_NAMES, REFUSE_MARKER, STALE_MARKER, type ActionSpec } from "./actions.js";
 export * from "./protocol.js";
 export * from "./fixtures.js";
 export { hashTypedData, hashTypedDataHex, signTypedData, recoverTypedDataAddress, type TypedData } from "./crypto/eip712.js";

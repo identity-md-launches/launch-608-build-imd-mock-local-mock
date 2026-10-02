@@ -33,7 +33,7 @@ const DECIMAL = /^(0|[1-9][0-9]*)$/;
 const SIGNATURE = /^0x[0-9a-fA-F]{130}$/;
 const MAX_UINT256 = (1n << 256n) - 1n;
 
-type Shape = "string" | "number" | "decimal" | "address" | "signature" | { [key: string]: Shape };
+type Shape = "string" | "number" | "decimal" | "address" | "signature" | "empty-object" | { [key: string]: Shape };
 
 // Exactly these keys, at every level. Anything extra or missing is a shape error.
 const PAYMENT_SHAPE: Shape = {
@@ -42,11 +42,11 @@ const PAYMENT_SHAPE: Shape = {
   accepted: {
     scheme: "string",
     network: "string",
-    amount: "decimal",
     asset: "address",
+    amount: "decimal",
     payTo: "address",
     maxTimeoutSeconds: "number",
-    extra: { assetTransferMethod: "string", name: "string", version: "string" },
+    extra: { assetTransferMethod: "string" },
   },
   payload: {
     signature: "signature",
@@ -59,7 +59,15 @@ const PAYMENT_SHAPE: Shape = {
       witness: { to: "address", validAfter: "decimal" },
     },
   },
+  // The one field a stock x402 client may attach, and only when it is empty.
+  extensions: "empty-object",
 };
+
+const OPTIONAL_PATHS = new Set(["extensions"]);
+
+function isEmptyObject(value: unknown): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 0;
+}
 
 function shapeProblems(value: unknown, shape: Shape, path: string, out: string[]): void {
   if (typeof shape === "object") {
@@ -68,13 +76,17 @@ function shapeProblems(value: unknown, shape: Shape, path: string, out: string[]
       return;
     }
     const obj = value as Record<string, unknown>;
+    // Object.hasOwn, not `in`: `constructor` and `toString` are not fields.
     for (const key of Object.keys(obj)) {
-      if (!(key in shape)) out.push(`${path ? `${path}.` : ""}${key} is not allowed`);
+      if (!Object.hasOwn(shape, key)) out.push(`${path ? `${path}.` : ""}${key} is not allowed`);
     }
     for (const [key, sub] of Object.entries(shape)) {
       const p = path ? `${path}.${key}` : key;
-      if (!(key in obj)) out.push(`${p} is required`);
-      else shapeProblems(obj[key], sub, p, out);
+      if (!Object.hasOwn(obj, key) || obj[key] === undefined) {
+        if (!OPTIONAL_PATHS.has(p)) out.push(`${p} is required`);
+      } else {
+        shapeProblems(obj[key], sub, p, out);
+      }
     }
     return;
   }
@@ -83,9 +95,14 @@ function shapeProblems(value: unknown, shape: Shape, path: string, out: string[]
     : shape === "number" ? typeof value === "number" && Number.isSafeInteger(value)
     : shape === "decimal" ? typeof value === "string" && DECIMAL.test(value) && BigInt(value) <= MAX_UINT256
     : shape === "address" ? isAddress(value)
+    : shape === "empty-object" ? isEmptyObject(value)
     : typeof value === "string" && SIGNATURE.test(value);
   if (!ok) {
-    const what = shape === "decimal" ? "a decimal string (uint256)" : shape === "signature" ? "a 65-byte 0x hex signature" : `a valid ${shape}`;
+    const what =
+      shape === "decimal" ? "a decimal string (uint256)"
+      : shape === "signature" ? "a 65-byte 0x hex signature"
+      : shape === "empty-object" ? "an empty object"
+      : `a valid ${shape}`;
     out.push(`${path} must be ${what}`);
   }
 }

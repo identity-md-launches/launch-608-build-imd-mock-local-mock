@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { ACTION_NAMES } from "./actions.js";
 import { runConformance } from "./conformance.js";
 import { MOCK_PAY_TO, TEST_BEARER_TOKEN, TEST_PAYER_ADDRESS, TEST_PAYER_KEY } from "./fixtures.js";
 import { EXPERIMENTAL_NOTICE } from "./protocol.js";
@@ -20,14 +21,17 @@ Usage:
 Options:
   -p, --port <n>            port to listen on (serve; 0 = any free port)
   -H, --host <addr>         address to bind (default 127.0.0.1)
-      --flaky               /requests/check refuses each distinct body once,
-                            then answers normally
-      --quote-lifetime <s>  quote lifetime in seconds (default 600)
+      --flaky               /requests/check adds an evaluator-noise blocker to
+                            each distinct body once, then answers normally
+      --quote-ttl <s>       quote lifetime in seconds (default 600)
       --public-url <url>    base URL to put in resourceUrl (default: from Host)
       --url <url>           conformance: server to test instead of a fresh mock
   -q, --quiet               serve: do not log requests
   -h, --help                show this help
   -v, --version             show the version
+
+Actions (the catalogue the live API enables):
+  ${ACTION_NAMES.join(", ")}
 
 Test identities (public, never fund them):
   bearer token  ${TEST_BEARER_TOKEN}
@@ -43,7 +47,7 @@ async function main(argv) {
             port: { type: "string", short: "p" },
             host: { type: "string", short: "H", default: "127.0.0.1" },
             flaky: { type: "boolean", default: false },
-            "quote-lifetime": { type: "string" },
+            "quote-ttl": { type: "string" },
             "public-url": { type: "string" },
             url: { type: "string" },
             quiet: { type: "boolean", short: "q", default: false },
@@ -60,11 +64,11 @@ async function main(argv) {
         process.stdout.write("imd-mock 0.1.0\n");
         return 0;
     }
-    const quoteLifetimeSeconds = values["quote-lifetime"] === undefined ? undefined : Number(values["quote-lifetime"]);
-    if (quoteLifetimeSeconds !== undefined && !(Number.isInteger(quoteLifetimeSeconds) && quoteLifetimeSeconds > 10)) {
-        throw new Error("--quote-lifetime must be an integer number of seconds above 10");
+    const quoteTtlSeconds = values["quote-ttl"] === undefined ? undefined : Number(values["quote-ttl"]);
+    if (quoteTtlSeconds !== undefined && !(Number.isInteger(quoteTtlSeconds) && quoteTtlSeconds > 10)) {
+        throw new Error("--quote-ttl must be an integer number of seconds above 10");
     }
-    const options = { flaky: values.flaky, quoteLifetimeSeconds, publicUrl: values["public-url"] };
+    const options = { flaky: values.flaky, quoteTtlSeconds, publicUrl: values["public-url"] };
     if (command === "vectors") {
         process.stdout.write(`${JSON.stringify(buildVectors(), null, 2)}\n`);
         return 0;

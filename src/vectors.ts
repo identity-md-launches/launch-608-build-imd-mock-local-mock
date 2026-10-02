@@ -6,6 +6,7 @@
 import { encodeType, hashTypedDataHex } from "./crypto/eip712.js";
 import { signPayment } from "./client.js";
 import {
+  FIXED_JOB_INPUT,
   FIXED_NONCE,
   FIXED_NOW_MS,
   FIXED_REQUEST_KEY,
@@ -30,8 +31,8 @@ export const VECTORS_PUBLIC_URL = "http://127.0.0.1:8402";
 export function buildVectors() {
   const state = new MockState({ now: () => FIXED_NOW_MS, publicUrl: VECTORS_PUBLIC_URL });
   const scope = sha256Hex(TEST_BEARER_TOKEN);
-  const input = { message: "hello imd-mock" };
-  const { order } = state.quote(scope, { requestKey: FIXED_REQUEST_KEY, action: "echo", input }, VECTORS_PUBLIC_URL);
+  const input = FIXED_JOB_INPUT;
+  const { order } = state.quote(scope, { requestKey: FIXED_REQUEST_KEY, action: "job.open", input }, VECTORS_PUBLIC_URL);
   const challenge = state.submit(scope, order.id, undefined, undefined).body as PaymentChallenge;
   const signed = signPayment(challenge, TEST_PAYER_KEY, { nonce: FIXED_NONCE });
 
@@ -46,7 +47,7 @@ export function buildVectors() {
       mockPayTo: MOCK_PAY_TO,
     },
     nowMs: FIXED_NOW_MS,
-    quoteRequest: { requestKey: FIXED_REQUEST_KEY, action: "echo", input },
+    quoteRequest: { requestKey: FIXED_REQUEST_KEY, action: "job.open", input },
     challenge,
     permit2: {
       encodedType: encodeType("PermitWitnessTransferFrom", PERMIT2_TYPES),
