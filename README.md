@@ -72,7 +72,7 @@ server serves at `/`.
 | --- | --- | --- |
 | 1 | Make a bearer token: 32 random bytes as hex | Any other token is `401 unauthorized` |
 | 2 | `POST /requests/quote {requestKey, action, input}` | `201 {order:{id, status:"quoted", quote, ...}}`; same `requestKey` and body again is `200` with the same order; same key with a different body is `409 request_key_conflict`; bad input is `422 {error:"invalid_input", problems:[{path, message}]}` |
-| 3 | `POST /requests/{id}/submit`, no body, no payment | `402 {x402Version:2, accepts[], quote{id, quoteHash, action, payment{asset, amount, payTo}, expiresAt}, resource, resourceUrl, requesterScopeHash}`, also base64 in the `PAYMENT-REQUIRED` header |
+| 3 | `POST /requests/{id}/submit`, no body, no payment | `402 {x402Version:2, accepts[], quote{id, quoteHash, action, payment{asset, amount, payTo}, expiresAt}, resource, resourceUrl, requesterScopeHash, input}`, also base64 in the `PAYMENT-REQUIRED` header |
 | 4 | Check `accepts[0]` against capabilities and the quote | `checkChallenge()` in `src/client.ts` does this |
 | 5 | Sign Permit2 `PermitWitnessTransferFrom` | Verified on submit (below) |
 | 6 | Sign `QuoteApproval` | Verified on submit (below) |
@@ -174,7 +174,7 @@ node dist/cli.js conformance --flaky                 # against a flaky mock
 node dist/cli.js conformance --url http://127.0.0.1:8402  # against a server that is already running
 ```
 
-It prints TAP and exits non-zero on any failure. It covers 20 checks: capabilities and openapi shapes,
+It prints TAP and exits non-zero on any failure. It covers capabilities and openapi shapes,
 browser-origin and bearer rules, check blockers with retry, quote validation and idempotency, the
 402 challenge shape and its agreement with capabilities, the payment-shape, mismatch, deadline,
 forged-signature and wrong-`paymentHash` refusals, successful paid submits, nonce replay, double
@@ -188,10 +188,10 @@ on a real server a payment would be real.
 ## Use as a library
 
 ```ts
-import { startMock, ImdClient, TEST_PAYER_KEY } from "imd-mock";
+import { startMock, ImdClient, TEST_BEARER_TOKEN, TEST_PAYER_KEY } from "imd-mock";
 
 const mock = await startMock(0, "127.0.0.1", { flaky: true });   // port 0 picks a free port
-const client = new ImdClient(mock.url, "<64 hex chars>");
+const client = new ImdClient(mock.url, TEST_BEARER_TOKEN);
 const { id, submit } = await client.pay("job.open", { objective: "Say hi." }, TEST_PAYER_KEY);
 await mock.close();
 ```
@@ -246,7 +246,7 @@ vendor/npm/         tarballs of the dev dependencies (typescript, @types/node) s
 
 ```sh
 npm ci            # installs typescript and @types/node from vendor/npm, no network needed
-npm test          # type-checks src and test, then runs 80 tests (payment, flaky, API, CLI, conformance)
+npm test          # type-checks src and test, then runs the test suites (payment, flaky, API, CLI, conformance)
 npm run compile   # rebuild dist/ after changing src/ (commit dist/ with the change)
 npm run vectors   # regenerate fixtures/vectors.json after an intentional protocol change
 ```

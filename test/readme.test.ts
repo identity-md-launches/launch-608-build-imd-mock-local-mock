@@ -55,3 +55,33 @@ test("README hand commands run against the mock", async () => {
     await mock.close();
   }
 });
+
+test("README conformance commands pass", async () => {
+  const readme = await readFile(resolve(ROOT, "README.md"), "utf8");
+  const match = /## Conformance suite\n\n```sh\n([\s\S]*?)```/.exec(readme);
+  assert.ok(match, "README must have a Conformance suite shell block");
+
+  const mock = await startMock(0, "127.0.0.1");
+  try {
+    const commands = match[1].replace("http://127.0.0.1:8402", mock.url);
+    const { stdout } = await execFileAsync("bash", ["-eu", "-o", "pipefail", "-c", commands], {
+      cwd: ROOT,
+      maxBuffer: 2 * 1024 * 1024,
+      timeout: 60_000,
+    });
+    assert.equal((stdout.match(/^# fail 0$/gm) ?? []).length, 3);
+  } finally {
+    await mock.close();
+  }
+});
+
+test("README library example runs", async () => {
+  const readme = await readFile(resolve(ROOT, "README.md"), "utf8");
+  const match = /## Use as a library\n\n```ts\n([\s\S]*?)```/.exec(readme);
+  assert.ok(match, "README must have a Use as a library TypeScript block");
+
+  await execFileAsync(process.execPath, ["--input-type=module", "-e", `${match[1]}\nif (!id || submit.status !== 202) throw new Error("library example did not submit a job");`], {
+    cwd: ROOT,
+    timeout: 10_000,
+  });
+});
